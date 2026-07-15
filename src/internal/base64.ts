@@ -14,25 +14,16 @@
  *
  * Canonical inputs carry no surrounding whitespace, so no trim is applied;
  * leading/trailing whitespace is itself a rejection.
+ *
+ * The strict VALIDATION (alphabet/length/padding) lives in the pure, Buffer-
+ * free ./base64-validate.ts so the browser decoder can share it; this module
+ * adds the node `Buffer`-based decode on top and re-exports `assertBase64` so
+ * existing importers of `./base64.js` are unchanged.
  */
 
-// Standard base64 alphabet; `=` only as 1-2 trailing pad chars. Total length
-// must be a multiple of 4.
-const STD_B64 = /^[A-Za-z0-9+/]*={0,2}$/
+import { assertBase64 } from './base64-validate.js'
 
-/**
- * Validate strict standard base64. Throws Error('base64-malformed') on any
- * non-conforming input.
- */
-export function assertBase64(s: string): void {
-  if (typeof s !== 'string') throw new Error('base64-malformed')
-  if (s.length % 4 !== 0) throw new Error('base64-malformed')
-  if (!STD_B64.test(s)) throw new Error('base64-malformed')
-  // `=` may appear only in the final 1-2 positions. The regex `={0,2}` anchored
-  // at end already guarantees pad chars are contiguous and trailing, but a pad
-  // char earlier in the body would have been rejected by the alphabet class —
-  // so an in-body `=` cannot pass STD_B64. No extra check needed.
-}
+export { assertBase64 }
 
 /**
  * Strictly decode standard base64 to raw bytes. Throws

@@ -30,76 +30,36 @@
  * Identity stability: signatures live in a detached `signatures[]` array and
  * are NEVER part of the OID hash input (see `cdroContentCore` in oid.ts), so
  * adding, rotating, or replacing a signature never changes the object's OID.
+ *
+ * NODE ENTRY: this module verifies via node:crypto (Ed25519 native, ML-DSA-65
+ * native-with-@noble-fallback) and is SYNCHRONOUS. The PAE, algorithm ids,
+ * types, AND-policy lookup, and envelope-shape predicate are shared with the
+ * browser verify surface via ./internal/attestation-core.ts (pure, no
+ * node:crypto); only the verify orchestration below is node-specific. The
+ * browser-safe async equivalent lives in ./verify-browser.ts.
  */
 
 import { verifyEd25519 } from './ed25519.js'
 import { decodeBase64Strict } from './internal/base64.js'
 import { verifyMlDsa65 } from './mldsa.js'
-import type { AttestationEnvelope, AttestationSignature } from './types.js'
+import {
+  ALG_ED25519,
+  ALG_ML_DSA_65,
+  findSig,
+  isWellFormedEnvelope,
+  pae,
+  type VerifyAttestationInput,
+  type VerifyAttestationResult,
+} from './internal/attestation-core.js'
 
-/** The single supported algorithm identifiers for the JSON profile. */
-export const ALG_ED25519 = 'ed25519'
-export const ALG_ML_DSA_65 = 'ml-dsa-65'
-
-/**
- * The DSSE Pre-Authentication Encoding (PAE).
- *
- * Per the DSSE spec:
- *
- *   PAE(type, body) = "DSSEv1" SP LEN(type) SP type SP LEN(body) SP body
- *
- * where:
- *   - SP is a single ASCII space (0x20),
- *   - LEN(x) is the ASCII-decimal byte length of x's UTF-8 encoding,
- *   - type and body are the raw UTF-8 bytes (NOT base64).
- *
- * Binding the payloadType (and both lengths) into the signed bytes is what
- * makes a signature non-transferable across object types. Returns the raw
- * bytes to be signed/verified.
- */
-export function pae(payloadType: string, payload: string | Uint8Array): Uint8Array {
-  const enc = new TextEncoder()
-  const typeBytes = enc.encode(payloadType)
-  const bodyBytes = typeof payload === 'string' ? enc.encode(payload) : payload
-
-  const prefix = enc.encode(
-    `DSSEv1 ${typeBytes.length} ${payloadType} ${bodyBytes.length} `,
-  )
-  const out = new Uint8Array(prefix.length + bodyBytes.length)
-  out.set(prefix, 0)
-  out.set(bodyBytes, prefix.length)
-  return out
-}
-
-export interface VerifyAttestationInput {
-  /**
-   * The DSSE attestation envelope to verify. Its `payloadType` is bound into
-   * the PAE; its `payload` is the canonical UTF-8 string that was signed.
-   */
-  envelope: AttestationEnvelope
-  /** Raw 32-byte Ed25519 public key. */
-  ed25519_pub: Uint8Array
-  /** Raw ML-DSA-65 public key bytes. */
-  ml_dsa_pub: Uint8Array
-  /**
-   * Optional. If supplied, the verifier asserts the envelope's `payloadType`
-   * equals this value before verifying signatures — an explicit type-pinning
-   * check on top of the structural PAE binding. A mismatch fails with
-   * `payload-type-mismatch`.
-   */
-  expectedPayloadType?: string
-}
-
-export interface VerifyAttestationResult {
-  /** True only when BOTH required signatures verified over the same PAE. */
-  valid: boolean
-  /**
-   * Human-readable failure reasons. Empty when valid. Possible values:
-   * 'envelope-malformed', 'payload-type-mismatch', 'missing-ed25519',
-   * 'missing-ml-dsa-65', 'ed25519-malformed', 'ml-dsa-malformed',
-   * 'ed25519-invalid', 'ml-dsa-invalid'.
-   */
-  reasons: string[]
+// Re-export the crypto-agnostic core so the public surface is unchanged:
+// `import { pae, ALG_ED25519, ALG_ML_DSA_65 } from '@synoi/sraid'` still works.
+export {
+  ALG_ED25519,
+  ALG_ML_DSA_65,
+  pae,
+  type VerifyAttestationInput,
+  type VerifyAttestationResult,
 }
 
 /**
@@ -113,14 +73,7 @@ export function verifyAttestation(input: VerifyAttestationInput): VerifyAttestat
   const reasons: string[] = []
 
   const env = input.envelope
-  if (
-    env === null ||
-    typeof env !== 'object' ||
-    typeof env.payloadType !== 'string' ||
-    env.payloadType.length === 0 ||
-    typeof env.payload !== 'string' ||
-    !Array.isArray(env.signatures)
-  ) {
+  if (!isWellFormedEnvelope(env)) {
     return { valid: false, reasons: ['envelope-malformed'] }
   }
 
@@ -183,22 +136,10 @@ export function verifyAttestation(input: VerifyAttestationInput): VerifyAttestat
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function findSig(
-  sigs: readonly AttestationSignature[],
-  alg: string,
-): AttestationSignature | undefined {
-  for (const s of sigs) {
-    if (s && typeof s === 'object' && s.alg === alg && typeof s.sig === 'string') {
-      return s
-    }
-  }
-  return undefined
-}
-
 // Strict standard base64. Throws Error('base64-malformed') on any deviation
-// (illegal char, bad length, bad padding) rather than silently truncating.
-// Both call sites wrap this in try/catch and map the throw to a *-malformed
-// reason, so verifyAttestation never throws.
+// (illegal char, bad length, bad padding) rather than silently truncating. The
+// call sites wrap this in try/catch and map the throw to a *-malformed reason,
+// so verifyAttestation never throws.
 function fromBase64(s: string): Uint8Array {
   return decodeBase64Strict(s)
 }
