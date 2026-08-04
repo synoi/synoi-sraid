@@ -1,6 +1,6 @@
 {
   "name": "@synoi/sraid",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Reference TypeScript library for the SynOI SRAID (Self-Routing Addressable Identity Data) protocol - types, canonical object serializer, OID computation, signature verification, and validators for L0 of the SRAID Stack.",
   "license": "MIT",
   "homepage": "https://synoi.systems",
@@ -36,6 +36,16 @@
       "default": "./dist/verify-browser.js"
     }
   },
+  "typesVersions": {
+    "*": {
+      "canonicalize": [
+        "dist/canonicalize.d.ts"
+      ],
+      "verify-browser": [
+        "dist/verify-browser.d.ts"
+      ]
+    }
+  },
   "files": [
     "dist",
     "src",
@@ -47,7 +57,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "npx tsx test/run-all.ts"
+    "test": "npx tsx test/run-all.ts",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

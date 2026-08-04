@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.3.0 (2026-08-04)
+
+Additive, no wire change. Nothing about the signed bytes, the OID projection, or the canonical
+serializer moves in this release; an object that verified under 0.2.0 verifies identically here.
+
+The one user-visible change is a NEW export subpath, `@synoi/sraid/verify-browser`. The default (`.`)
+entry statically imports `node:crypto` in three places (`ed25519.ts`, `mldsa.ts`, `oid.ts`), so
+`import '@synoi/sraid'` breaks any browser, service-worker, or Chrome-extension bundle. The new
+subpath carries exactly what a v2 hybrid DSSE receipt verifier needs, with no static `node:crypto`
+import anywhere in its graph:
+
+- `verifyAttestation` - hybrid DSSE verify, Ed25519 AND ML-DSA-65 both required over the PAE. ASYNC
+  here, because WebCrypto Ed25519 verify is Promise-based. Identical envelope shape, AND policy, PAE
+  bytes and reason strings as the node entry.
+- `cdroOid`, `oidOf`, `oidOfCanonical` - OID helpers over WebCrypto SHA-256. ASYNC for the same
+  reason. Byte-identical results to the node entry for the same input.
+- `canonicalize`, `cdroContentCore`, `CDRO_ENVELOPE_FIELDS`, `pae`, `ALG_ED25519`, `ALG_ML_DSA_65` -
+  pure, shared byte-for-byte with the node entry via `internal/content-core` and
+  `internal/attestation-core`.
+
+Crypto backends, since browsers have no native ML-DSA and no `node:crypto`: Ed25519 verify on
+WebCrypto (RFC 8032 cofactored, matching the node path) with a `@noble/curves` fallback below the
+WebCrypto-Ed25519 support floor; ML-DSA-65 verify on `@noble/post-quantum`; SHA-256 on WebCrypto
+`subtle.digest`.
+
+The node default entry is unchanged and stays synchronous with its `node:crypto` fast paths. The only
+surface difference is that the four functions above return Promises on the browser entry.
+
+Also: `prepublishOnly` now runs `build` then `test`. `dist/` is gitignored and the tarball ships it,
+so a publish previously depended on whatever happened to be in the working tree.
+
+Source for this subpath merged to `main` on 2026-07-18 at `5433120` / `33ebf7f`, twelve days after
+0.2.0 was cut, which is why 0.2.0 on the registry exports only `.` and `./canonicalize`.
+
 ## 0.2.0 (2026-07-05)
 
 BREAKING (wire): migrates the L0 SRAID identifiers off the retired `cof` namespace onto `sraid`, per ADR_020 (internal).
