@@ -1,7 +1,7 @@
 # @synoi/sraid
 
 Reference TypeScript implementation of **SRAID (Self-Routing Addressable
-Identity Data)** — L0 of the SynOI SRAID Stack. MIT-licensed.
+Identity Data)**, L0 of the SynOI SRAID Stack. MIT-licensed.
 
 SRAID defines:
 
@@ -12,8 +12,8 @@ SRAID defines:
 - an **L3 Merkle-DAG lineage** layer (`prev` edge + typed `links[]`), hashed into the OID so a head id commits its whole reachable history, and
 - a supersession record, the **SRO** (Supersession Record Object), that links a successor CDRO to its predecessor.
 
-The three legacy supersession mechanisms — the self-asserted `supersedes`
-string, the standalone SRO, and the `prev` edge — are unified by the lineage
+The three legacy supersession mechanisms, the self-asserted `supersedes`
+string, the standalone SRO, and the `prev` edge, are unified by the lineage
 helpers (`lineageLinks`, `supersededOids`, `latestWins`). `latestWins` resolves
 a set of versions to its single head by following the identity-bound `prev`/
 `links` edges, giving a verifier a **latest-wins / monotone** rule instead of an
@@ -24,8 +24,8 @@ transparency-log property (DESIGN, not yet deployed). The `set_complete` field
 on `LatestWinsResult` is the local signal that lets a caller detect an
 incomplete (potentially withheld) set.
 
-Higher layers — Vault/Resolver (L1), Inference Broker/Resonance (L2), GAP (L3)
-— are built on SRAID objects. This package is intentionally tiny and has no
+Higher layers are built on SRAID objects: Vault/Resolver at L1, Inference
+Broker/Resonance at L2, GAP at L3. This package is intentionally tiny and has no
 storage, no HTTP surface, and no governance logic.
 
 ## Install
@@ -113,6 +113,51 @@ interface SRO                    { /* supersession record */ }
 interface SignatureEnvelope      { ed25519: string; ml_dsa_65: string; signer_kid: string }
 ```
 
+## Browser, Chrome extension, service worker
+
+The default (`.`) entry statically imports `node:crypto` in three places
+(`ed25519.ts`, `mldsa.ts`, `oid.ts`), so `import '@synoi/sraid'` breaks any
+browser bundle. Import the `./verify-browser` subpath instead. It carries exactly
+what a v2 hybrid DSSE receipt verifier needs, with no static `node:crypto`
+anywhere in its graph.
+
+```ts
+import { verifyAttestation, canonicalize, cdroContentCore } from '@synoi/sraid/verify-browser'
+
+const v = await verifyAttestation({
+  envelope:            receipt.attestation,
+  ed25519_pub,                                   // raw 32 bytes
+  ml_dsa_pub,                                    // raw 1952 bytes
+  expectedPayloadType: 'application/vnd.synoi.gap+json',
+})
+// { valid: true, reasons: [] } only when BOTH signatures verify over the PAE
+```
+
+```ts
+// The subpath surface. Four of these are ASYNC where the node entry is sync,
+// because WebCrypto is Promise-based. Everything else is shared byte-for-byte
+// with the node entry, so the two agree on the same input.
+verifyAttestation(input): Promise<{ valid: boolean; reasons: string[] }>   // ASYNC
+cdroOid(cdro: unknown): Promise<string>                                    // ASYNC
+oidOf(canonical: unknown): Promise<string>                                 // ASYNC
+oidOfCanonical(canonical: string | Uint8Array): Promise<string>            // ASYNC
+
+canonicalize(value: unknown): string          // pure, identical to the node entry
+cdroContentCore(cdro: unknown): Record<string, unknown>
+pae(payloadType: string, payload: string | Uint8Array): Uint8Array
+CDRO_ENVELOPE_FIELDS: readonly string[]
+ALG_ED25519, ALG_ML_DSA_65
+```
+
+Crypto backends, since browsers have no native ML-DSA and no `node:crypto`:
+Ed25519 verify on WebCrypto (RFC 8032 cofactored, matching the node path) with a
+`@noble/curves` fallback below the WebCrypto-Ed25519 support floor; ML-DSA-65
+verify on `@noble/post-quantum`; SHA-256 on WebCrypto `subtle.digest`.
+
+The node default entry is unchanged and keeps its synchronous `node:crypto` fast
+paths. This subpath is purely additive. Added in 0.3.0; earlier versions export
+only `.` and `./canonicalize`.
+
 ## Canonical form
 
 The canonical form is recursive JCS-lite JSON:
@@ -146,4 +191,4 @@ in this package returns `valid: true` only when BOTH succeed.
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE).
+MIT, see [`LICENSE`](./LICENSE).
