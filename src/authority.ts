@@ -165,6 +165,27 @@ export interface VerifyAuthorityInput {
    * explicitly unchecked (resolver-dependent).
    */
   resolver?: AuthorityResolver
+  /**
+   * Wall-clock instant for LIVE authorization, in epoch ms. Supply
+   * `Date.now()` when the question is "may this act happen NOW"; omit it when
+   * the question is "was this authorized at the time it was recorded"
+   * (historical replay, audit, conformance vectors).
+   *
+   * WHY THIS IS EXPLICIT AND NOT A DEFAULT: expiry was, and by default still
+   * is, evaluated against `object.created_at_ms` — a field carried on the
+   * object being verified. That is the correct semantics for replay, but it
+   * means a caller who controls `created_at_ms` also chooses the instant its
+   * own expiry check is evaluated at. Passing `now_ms` closes that: the grant
+   * must then be unexpired at BOTH the object's stated time and the supplied
+   * instant.
+   *
+   * This only ever ADDS a constraint. Omitting it reproduces the prior
+   * behaviour exactly, so no existing caller's verdict changes.
+   *
+   * The verifier never reads the system clock itself — determinism is a
+   * requirement of this module, so the instant is always caller-supplied.
+   */
+  now_ms?: number
 }
 
 /**
@@ -219,6 +240,21 @@ export interface VerifyAuthorityResult {
   signature_checked: boolean
   /** Coverage check: grant scope covers the action AND grant not expired. */
   coverage_ok: boolean
+  /**
+   * True when `now_ms` was supplied and the wall-clock expiry check ran.
+   * When false, expiry was evaluated ONLY against `object.created_at_ms`, so
+   * `coverage_ok === true` is a claim about the object's stated time and NOT
+   * about the present. Callers making live authorization decisions must check
+   * this field; a `true` verdict with `expiry_checked_at_now === false` has
+   * not been tested against any clock.
+   */
+  expiry_checked_at_now: boolean
+  /**
+   * True iff a wall-clock check ran AND the grant was unexpired at `now_ms`.
+   * Vacuously true when `now_ms` was omitted — read `expiry_checked_at_now`
+   * to distinguish "passed" from "never tested".
+   */
+  not_expired_at_now: boolean
   /** RESOLVER-DEPENDENT — true only if a resolver confirmed the grant exists. */
   existence_checked: boolean
   existence_ok: boolean
@@ -290,6 +326,10 @@ export function verifyAuthority(
   let signature_ok = false
   let signature_checked = false
   let coverage_ok = false
+  // Wall-clock expiry telemetry. Default: no clock was consulted, so the
+  // "not expired at now" claim is vacuous until `expiry_checked_at_now` flips.
+  let expiry_checked_at_now = false
+  let not_expired_at_now = true
 
   if (structure_ok && grant_supplied) {
     // BINDING — recompute the grant's OID over its content core and require it
@@ -385,10 +425,26 @@ export function verifyAuthority(
     const expires = grant.body?.expires_at_ms
     let notExpired = true
     if (typeof expires === 'number') {
+      // (i) OBJECT TIME — "was this authorized when it was recorded". Default,
+      // and the correct question for replay/audit. Caller-supplied field.
       if (input.object.created_at_ms > expires) {
         notExpired = false
         reasons.push('grant had expired at the object creation time')
       }
+      // (ii) WALL CLOCK — "is this authorized NOW". Opt-in via `now_ms`.
+      // Checked independently of (i) so a caller that controls
+      // `created_at_ms` cannot suppress it.
+      if (typeof input.now_ms === 'number') {
+        expiry_checked_at_now = true
+        if (input.now_ms > expires) {
+          not_expired_at_now = false
+          notExpired = false
+          reasons.push('grant has expired as of the supplied wall-clock time')
+        }
+      }
+    } else if (typeof input.now_ms === 'number') {
+      // Unbounded grant: the wall-clock check ran and vacuously passed.
+      expiry_checked_at_now = true
     }
     coverage_ok = covered && notExpired
   } else if (structure_ok && !grant_supplied) {
@@ -412,6 +468,8 @@ export function verifyAuthority(
     signature_ok,
     signature_checked,
     coverage_ok,
+    expiry_checked_at_now,
+    not_expired_at_now,
     existence_checked: false,
     existence_ok: false,
     revocation_checked: false,
@@ -511,6 +569,21 @@ export interface VerifyDelegationChainInput {
    * `action_checked` is false (vacuous pass — existing callers unaffected).
    */
   action?: string
+  /**
+   * Wall-clock instant for LIVE authorization, in epoch ms. When supplied,
+   * GATE 6 runs: EVERY link in the chain must be unexpired at this instant.
+   *
+   * WHY GATE 6 EXISTS: GATE 2(c) checks only monotone narrowing — that a child
+   * does not outlive its parent. That is a well-formedness property and says
+   * nothing about the present. A chain in which every hop narrows correctly
+   * but whose root expired last year satisfies GATE 2(c) completely. Without
+   * `now_ms`, such a chain returns `authorized: true`.
+   *
+   * Opt-in and additive: omitting it reproduces the prior behaviour exactly.
+   * The verifier never reads the system clock itself, so that verification
+   * stays deterministic and replayable.
+   */
+  now_ms?: number
 }
 
 /**
@@ -530,8 +603,25 @@ export interface VerifyDelegationChainResult {
   links_ok: boolean
   /** Every child scope covered by some parent scope, all hops (no widening). */
   attenuation_ok: boolean
-  /** Monotone expiry narrowing, all hops. */
+  /**
+   * Monotone expiry narrowing, all hops — a child never outlives its parent.
+   * This is a WELL-FORMEDNESS property, not a liveness one: a chain whose
+   * every hop narrows correctly but whose root expired long ago still sets
+   * this true. For liveness read `not_expired_at_now`.
+   */
   expiry_ok: boolean
+  /**
+   * True when `now_ms` was supplied and GATE 6 ran. When false, NO link was
+   * tested against any clock and `authorized === true` carries no claim about
+   * the present.
+   */
+  expiry_checked_at_now: boolean
+  /**
+   * True iff GATE 6 ran AND every link was unexpired at `now_ms`. Vacuously
+   * true when `now_ms` was omitted — read `expiry_checked_at_now` to
+   * distinguish "passed" from "never tested".
+   */
+  not_expired_at_now: boolean
   /** Every link carried a valid hybrid DSSE attestation over its content core. */
   signatures_ok: boolean
   /** False if any link lacked an attestation, or if no crypto ran (over-depth). */
@@ -611,8 +701,17 @@ function scopeCaps(grant: CDRO<GrantBodyShape> | undefined): string[] {
  *                          false for that link and fails.
  *   GATE 4  ROOT ANCHOR  — the terminal link's issuer key deep-equals
  *                          rootPubkeys.
+ *   GATE 5  ACTION       — optional; leaf scopes cover `input.action`.
+ *   GATE 6  LIVENESS     — optional; every link unexpired at `input.now_ms`.
+ *                          Distinct from GATE 2(c), which proves only that the
+ *                          chain narrows monotonically and says nothing about
+ *                          whether any link is still valid now.
  *
  * `authorized` is the AND of every gate.
+ *
+ * DETERMINISM: this function never reads the system clock. Any time-dependent
+ * check is driven by a caller-supplied instant, so verification is replayable
+ * and conformance vectors stay stable.
  */
 export function verifyDelegationChain(
   input: VerifyDelegationChainInput,
@@ -631,6 +730,11 @@ export function verifyDelegationChain(
     links_ok: false,
     attenuation_ok: false,
     expiry_ok: false,
+    // No gate ran on this path, so the clock was not consulted. Reported as
+    // "not checked" rather than "passed" — a bail-out must never look like a
+    // liveness pass.
+    expiry_checked_at_now: false,
+    not_expired_at_now: false,
     signatures_ok: false,
     signatures_checked: false,
     oids_ok: false,
@@ -814,12 +918,35 @@ export function verifyDelegationChain(
     }
   }
 
+  // ── GATE 6 — WALL-CLOCK LIVENESS (optional) ────────────────────────────────
+  // GATE 2(c) proves the chain NARROWS correctly. It does not prove any link
+  // is still live: a chain whose every hop narrows perfectly but whose root
+  // expired last year passes GATE 2(c) outright. Every link is checked, not
+  // just the leaf — a leaf may legitimately outlive nothing, but an expired
+  // ancestor invalidates everything beneath it regardless of the leaf's own
+  // stated expiry.
+  let expiry_checked_at_now = false
+  let not_expired_at_now = true
+  if (typeof input.now_ms === 'number') {
+    expiry_checked_at_now = true
+    for (let i = 0; i < depth; i++) {
+      const e = (links[i] as CDRO<GrantBodyShape>).body?.expires_at_ms
+      if (typeof e === 'number' && input.now_ms > e) {
+        not_expired_at_now = false
+        reasons.push(
+          `link ${i} expired at ${e}, before the supplied wall-clock time ${input.now_ms}`,
+        )
+      }
+    }
+  }
+
   const authorized =
     depth_ok &&
     oids_ok &&
     links_ok &&
     attenuation_ok &&
     expiry_ok &&
+    not_expired_at_now &&
     signatures_ok &&
     signatures_checked &&
     root_ok &&
@@ -832,6 +959,8 @@ export function verifyDelegationChain(
     links_ok,
     attenuation_ok,
     expiry_ok,
+    expiry_checked_at_now,
+    not_expired_at_now,
     signatures_ok,
     signatures_checked,
     oids_ok,

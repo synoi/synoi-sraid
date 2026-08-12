@@ -381,3 +381,86 @@ const t6 = verifyAuthority({
 ok('T6: no-attestation legacy grant: signature_ok unchanged', t6.signature_ok)
 
 void resolverTests()
+
+// ── WALL-CLOCK EXPIRY (now_ms) ───────────────────────────────────────────────
+// Regression cover for the object-time expiry gap: expiry was evaluated ONLY
+// against `object.created_at_ms`, a caller-supplied field. A caller able to
+// choose that value also chose the instant its own expiry check ran.
+
+// A grant that expired at epoch ms 1000 (1970).
+const staleGrant = buildGrant({
+  capability_scopes: [{ capability: 'email.*' }],
+  expires_at_ms: 1000,
+})
+// An object BACKDATED to before that expiry — the attack shape.
+const backdatedObj: CDRO = {
+  ...obj,
+  created_at_ms: 500,
+  authority: { ...obj.authority!, grant_oid: staleGrant.oid },
+}
+
+// W1: documents the DEFAULT (replay) semantics. Without a clock the verifier
+// answers "was this authorized when it says it was", and by the object's own
+// account it was. This is intentionally still true — it is the reason the
+// wall-clock check has to be a separate, explicit gate.
+const w1 = verifyAuthority({
+  object: backdatedObj, action: 'email.bulk_delete', grant: staleGrant,
+  grant_ed25519_pub: edPub, grant_ml_dsa_pub: mlPub,
+})
+ok('W1: backdated object, no now_ms: coverage_ok true (object-time semantics)',
+  w1.coverage_ok === true)
+ok('W1: backdated object, no now_ms: expiry_checked_at_now false',
+  w1.expiry_checked_at_now === false)
+
+// W2: THE FIX. Same inputs, wall clock supplied — the backdating no longer
+// helps, because the clock check does not consult created_at_ms at all.
+const w2 = verifyAuthority({
+  object: backdatedObj, action: 'email.bulk_delete', grant: staleGrant,
+  grant_ed25519_pub: edPub, grant_ml_dsa_pub: mlPub,
+  now_ms: 1_800_000_000_000,
+})
+ok('W2: backdated object + now_ms: coverage_ok false', w2.coverage_ok === false)
+ok('W2: backdated object + now_ms: not_expired_at_now false',
+  w2.not_expired_at_now === false)
+ok('W2: backdated object + now_ms: expiry_checked_at_now true',
+  w2.expiry_checked_at_now === true)
+ok('W2: backdated object + now_ms: authorized false', w2.authorized === false)
+ok('W2: reason names the wall clock',
+  w2.reasons.some(r => r.includes('wall-clock')))
+
+// W3: a live grant under a wall clock still authorizes.
+const w3 = verifyAuthority({
+  object: obj, action: 'email.bulk_delete', grant,
+  grant_ed25519_pub: edPub, grant_ml_dsa_pub: mlPub,
+  now_ms: 1_716_840_002_000,
+})
+ok('W3: live grant + now_ms: authorized true', w3.authorized === true)
+ok('W3: live grant + now_ms: expiry_checked_at_now true',
+  w3.expiry_checked_at_now === true)
+ok('W3: live grant + now_ms: not_expired_at_now true',
+  w3.not_expired_at_now === true)
+
+// W4: additive-only. Omitting now_ms must reproduce the prior verdict exactly,
+// so no existing caller's result changes.
+const w4 = verifyAuthority({
+  object: obj, action: 'email.bulk_delete', grant,
+  grant_ed25519_pub: edPub, grant_ml_dsa_pub: mlPub,
+})
+ok('W4: omitting now_ms leaves authorized unchanged', w4.authorized === w3.authorized)
+ok('W4: omitting now_ms reports the clock as NOT consulted',
+  w4.expiry_checked_at_now === false)
+
+// W5: an unbounded grant passes the clock check, and reports that it ran —
+// "vacuously passed" must be distinguishable from "never tested".
+const foreverGrant = buildGrant({ capability_scopes: [{ capability: 'email.*' }] })
+const foreverObj: CDRO = {
+  ...obj, authority: { ...obj.authority!, grant_oid: foreverGrant.oid },
+}
+const w5 = verifyAuthority({
+  object: foreverObj, action: 'email.bulk_delete', grant: foreverGrant,
+  grant_ed25519_pub: edPub, grant_ml_dsa_pub: mlPub,
+  now_ms: 1_800_000_000_000,
+})
+ok('W5: unbounded grant + now_ms: coverage_ok true', w5.coverage_ok === true)
+ok('W5: unbounded grant + now_ms: expiry_checked_at_now true',
+  w5.expiry_checked_at_now === true)

@@ -331,5 +331,72 @@ const swapped = verifyDelegationChain({
 ok('payload-swap: signatures_ok false', swapped.signatures_ok === false)
 ok('payload-swap: not authorized', swapped.authorized === false)
 
+// ── WALL-CLOCK LIVENESS (GATE 6) ─────────────────────────────────────────────
+// GATE 2(c) proves only that the chain NARROWS. A chain in which every hop
+// narrows correctly but which has already expired satisfies it completely.
+// Before GATE 6 there was no clock anywhere in this function, so such a chain
+// returned authorized:true indefinitely.
+
+// G1: the valid chain, evaluated AFTER its leaf expiry (leaf: 1716900000000).
+const g1 = verifyDelegationChain({ ...validInput, now_ms: 1_800_000_000_000 })
+ok('G1: expired chain + now_ms: expiry_ok still true (narrowing is well-formed)',
+  g1.expiry_ok === true)
+ok('G1: expired chain + now_ms: not_expired_at_now false',
+  g1.not_expired_at_now === false)
+ok('G1: expired chain + now_ms: authorized false', g1.authorized === false)
+ok('G1: reason identifies the expired link',
+  g1.reasons.some(r => r.includes('expired at')))
+
+// G2: same chain, evaluated while still live.
+const g2 = verifyDelegationChain({ ...validInput, now_ms: 1_716_890_000_000 })
+ok('G2: live chain + now_ms: authorized true', g2.authorized === true,
+  JSON.stringify(g2.reasons))
+ok('G2: live chain + now_ms: expiry_checked_at_now true',
+  g2.expiry_checked_at_now === true)
+
+// G3: additive-only. Omitting now_ms reproduces the prior verdict.
+const g3 = verifyDelegationChain(validInput)
+ok('G3: no now_ms: authorized true (unchanged)', g3.authorized === true)
+ok('G3: no now_ms: reports clock NOT consulted',
+  g3.expiry_checked_at_now === false)
+
+// G4: EVERY link is checked, not just the leaf. Here the leaf is still live
+// but an ANCESTOR has expired — the case a leaf-only check would miss.
+const staleMid = buildGrant(a, {
+  capability_scopes: [{ capability: 'email.read' }],
+  expires_at_ms: 1_716_800_000_000,
+  granted_by: a.actor_oid,
+  grantee: { actor_oid: b.actor_oid },
+  parent_grant_oid: grantA.oid,
+})
+const liveLeafUnderStaleMid = buildGrant(b, {
+  capability_scopes: [{ capability: 'email.read' }],
+  expires_at_ms: 1_716_700_000_000,
+  granted_by: b.actor_oid,
+  grantee: { actor_oid: 'sha256:' + 'c'.repeat(64) },
+  parent_grant_oid: staleMid.oid,
+})
+const g4 = verifyDelegationChain({
+  leaf: liveLeafUnderStaleMid,
+  ancestors: [staleMid, grantA],
+  linkPubkeys: [pub(b), pub(a), pub(root)],
+  rootPubkeys: pub(root),
+  now_ms: 1_716_850_000_000,
+})
+ok('G4: expired ancestor + now_ms: not_expired_at_now false',
+  g4.not_expired_at_now === false)
+ok('G4: expired ancestor + now_ms: authorized false', g4.authorized === false)
+
+// G5: a short-circuit bail must report the clock as NOT checked, so that a
+// bail-out is never mistakable for a liveness pass.
+const g5 = verifyDelegationChain({
+  leaf: undefined as unknown as typeof leaf,
+  ancestors: [], linkPubkeys: [], rootPubkeys: pub(root), now_ms: 1,
+})
+ok('G5: bail-out reports expiry_checked_at_now false',
+  g5.expiry_checked_at_now === false)
+ok('G5: bail-out reports not_expired_at_now false (not a vacuous pass)',
+  g5.not_expired_at_now === false)
+
 process.stdout.write(`\n${passed} passed, ${failed} failed\n`)
 process.exit(failed > 0 ? 1 : 0)
