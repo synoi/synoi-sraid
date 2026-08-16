@@ -281,6 +281,19 @@ export function verifyAuthority(
 export function verifyAuthority(
   input: VerifyAuthorityInput,
 ): VerifyAuthorityResult | Promise<VerifyAuthorityResult> {
+  // `typeof NaN === 'number'`, so a bare `typeof input.now_ms === 'number'`
+  // check below would let a bad Date.parse() (or any other NaN-producing
+  // caller bug) through as a "wall clock supplied" instant. That would set
+  // expiry_checked_at_now: true and, for an unbounded grant, not_expired_at_now:
+  // true too — a vacuous pass reported as a real one, exactly what these two
+  // fields exist to prevent. Treating a non-finite now_ms as "not supplied"
+  // would silently fall back to object-time semantics, which hides the bug
+  // from the caller. This is a caller error, not a legitimate "omitted"
+  // state (omitted is `undefined`), so it throws instead.
+  if (input.now_ms !== undefined && !Number.isFinite(input.now_ms)) {
+    throw new TypeError(`verifyAuthority: now_ms must be a finite number, got ${input.now_ms}`)
+  }
+
   const reasons: string[] = []
   const auth: AuthorityBlock | undefined = input.object?.authority
 
@@ -716,6 +729,16 @@ function scopeCaps(grant: CDRO<GrantBodyShape> | undefined): string[] {
 export function verifyDelegationChain(
   input: VerifyDelegationChainInput,
 ): VerifyDelegationChainResult {
+  // See the matching guard in verifyAuthority: typeof NaN === 'number', so an
+  // unvalidated now_ms would let a caller's bad Date.parse() through GATE 6 as
+  // if a real wall clock had been supplied, reporting expiry_checked_at_now
+  // and possibly not_expired_at_now as true on a check that never meaningfully
+  // ran. Caller bug, not an omission, so it throws rather than silently
+  // degrading to "not supplied".
+  if (input.now_ms !== undefined && !Number.isFinite(input.now_ms)) {
+    throw new TypeError(`verifyDelegationChain: now_ms must be a finite number, got ${input.now_ms}`)
+  }
+
   const reasons: string[] = []
   const links = [input.leaf, ...input.ancestors]
   const depth = links.length

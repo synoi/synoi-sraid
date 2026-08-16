@@ -464,3 +464,35 @@ const w5 = verifyAuthority({
 ok('W5: unbounded grant + now_ms: coverage_ok true', w5.coverage_ok === true)
 ok('W5: unbounded grant + now_ms: expiry_checked_at_now true',
   w5.expiry_checked_at_now === true)
+
+// W6/W7: NON-FINITE now_ms MUST THROW, not silently vacuously-pass.
+// typeof NaN === 'number', so a bare `typeof now_ms === 'number'` check (what
+// the wall-clock gate above uses) would treat a caller's bad Date.parse() as
+// "a real clock was supplied" and could report expiry_checked_at_now: true /
+// not_expired_at_now: true on a check that never meaningfully ran — the
+// exact vacuous-pass-reported-as-real-pass the two-field design exists to
+// prevent. Treated as a caller bug: throw rather than fall back to
+// object-time semantics, which would hide the bug entirely.
+let w6threw = false
+try {
+  verifyAuthority({
+    object: obj, action: 'email.bulk_delete', grant,
+    grant_ed25519_pub: edPub, grant_ml_dsa_pub: mlPub,
+    now_ms: Number.NaN,
+  })
+} catch (err) {
+  w6threw = err instanceof TypeError
+}
+ok('W6: now_ms=NaN throws TypeError', w6threw)
+
+let w7threw = false
+try {
+  verifyAuthority({
+    object: obj, action: 'email.bulk_delete', grant,
+    grant_ed25519_pub: edPub, grant_ml_dsa_pub: mlPub,
+    now_ms: Infinity,
+  })
+} catch (err) {
+  w7threw = err instanceof TypeError
+}
+ok('W7: now_ms=Infinity throws TypeError', w7threw)

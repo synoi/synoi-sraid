@@ -398,5 +398,26 @@ ok('G5: bail-out reports expiry_checked_at_now false',
 ok('G5: bail-out reports not_expired_at_now false (not a vacuous pass)',
   g5.not_expired_at_now === false)
 
+// G6/G7: NON-FINITE now_ms MUST THROW. See the matching guard in
+// authority.test.ts (W6/W7): typeof NaN === 'number', so an unvalidated
+// now_ms would let a caller's bad Date.parse() through GATE 6 as if a real
+// wall clock had been supplied. Caller bug, not an omission — throw rather
+// than silently degrade to "not supplied".
+let g6threw = false
+try {
+  verifyDelegationChain({ ...validInput, now_ms: Number.NaN })
+} catch (err) {
+  g6threw = err instanceof TypeError
+}
+ok('G6: now_ms=NaN throws TypeError', g6threw)
+
+let g7threw = false
+try {
+  verifyDelegationChain({ ...validInput, now_ms: -Infinity })
+} catch (err) {
+  g7threw = err instanceof TypeError
+}
+ok('G7: now_ms=-Infinity throws TypeError', g7threw)
+
 process.stdout.write(`\n${passed} passed, ${failed} failed\n`)
 process.exit(failed > 0 ? 1 : 0)
