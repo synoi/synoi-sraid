@@ -1,10 +1,9 @@
 /**
- * test/validate.test.ts — shape validators for CDRO, SRO, SignatureEnvelope.
+ * test/validate.test.ts — shape validators for CDRO, SignatureEnvelope.
  */
 
 import {
   validateCdro,
-  validateSro,
   validateSignatureEnvelope,
   validateAttestationEnvelope,
 } from '../src/validate.js'
@@ -188,64 +187,6 @@ ok('valid CDRO with attestation → ok=true',
 ok('CDRO with malformed attestation → [E15] error',
    validateCdro({ ...goodCdro, attestation: { payloadType: 't' } })
      .errors.some(e => e.startsWith('[E15]')))
-
-// ── SRO validator ────────────────────────────────────────────────────────
-
-const goodSro = {
-  oid: 'sha256:' + 'c'.repeat(64),
-  type: 'sraid:sro',
-  sraid_version: '2.0',
-  tenant_id: 't-home',
-  created_at_ms: 1716840000000,
-  created_by: 'actor:operator',
-  body: {
-    predecessor_oid: 'sha256:' + 'a'.repeat(64),
-    successor_oid: 'sha256:' + 'b'.repeat(64),
-    reason: 'policy update',
-    authorized_by: 'actor:operator',
-  },
-}
-ok('valid SRO → ok=true', validateSro(goodSro).ok === true,
-   JSON.stringify(validateSro(goodSro).errors))
-
-// Wrong type field
-const wrongTypeSro = { ...goodSro, type: 'sraid:not-sro' }
-ok('SRO with wrong type → [S02] error',
-   validateSro(wrongTypeSro).errors.some(e => e.startsWith('[S02]')))
-
-// A5-SRO: non-canonical predecessor_oid rejected → [S03]
-ok(
-  'SRO with non-canonical predecessor_oid → [S03] error',
-  validateSro({ ...goodSro, body: { ...goodSro.body, predecessor_oid: 'sha256:short' } })
-    .errors.some(e => e.startsWith('[S03]')),
-)
-
-// A6-SRO: non-canonical successor_oid rejected → [S04]
-ok(
-  'SRO with non-canonical successor_oid → [S04] error',
-  validateSro({ ...goodSro, body: { ...goodSro.body, successor_oid: 'sha256:' + 'B'.repeat(64) } })
-    .errors.some(e => e.startsWith('[S04]')),
-)
-
-// Missing predecessor_oid (regression — empty string still rejected)
-const noPredSro = { ...goodSro, body: { ...goodSro.body, predecessor_oid: '' } }
-ok('SRO with empty predecessor_oid → [S03] error',
-   validateSro(noPredSro).errors.some(e => e.startsWith('[S03]')))
-
-// evidence_oids array of strings
-const goodEvidence = {
-  ...goodSro,
-  body: { ...goodSro.body, evidence_oids: ['sha256:' + 'd'.repeat(64)] },
-}
-ok('SRO with evidence_oids → ok=true', validateSro(goodEvidence).ok === true,
-   JSON.stringify(validateSro(goodEvidence).errors))
-
-const badEvidence = {
-  ...goodSro,
-  body: { ...goodSro.body, evidence_oids: ['ok', '', 42] },
-}
-ok('SRO with mixed evidence_oids → [S07] error',
-   validateSro(badEvidence).errors.some(e => e.startsWith('[S07]')))
 
 // ── Lineage independence (F26 A7) ────────────────────────────────────────
 // supersedes + prev + links[] all present and valid → ok=true (no cross-check)

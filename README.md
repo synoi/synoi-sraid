@@ -9,24 +9,28 @@ SRAID defines:
 - a deterministic canonical object serializer used as input to hashing and signing,
 - a content-derived **OID** (`sha256:` followed by 64 hex chars) over the canonical bytes,
 - a hybrid **Ed25519 + ML-DSA-65** signature envelope,
-- an **L3 Merkle-DAG lineage** layer (`prev` edge + typed `links[]`), hashed into the OID so a head id commits its whole reachable history, and
-- a supersession record, the **SRO** (Supersession Record Object), that links a successor CDRO to its predecessor.
+- a **Merkle-DAG lineage** layer (`prev` edge + typed `links[]`), hashed into the OID so a head id commits its whole reachable history.
 
-The three legacy supersession mechanisms, the self-asserted `supersedes`
-string, the standalone SRO, and the `prev` edge, are unified by the lineage
-helpers (`lineageLinks`, `supersededOids`, `latestWins`). `latestWins` resolves
-a set of versions to its single head by following the identity-bound `prev`/
-`links` edges, giving a verifier a **latest-wins / monotone** rule instead of an
-unwitnessed pointer. Given the complete version set, `latestWins` will not name
-a superseded object as head; full rollback-replay resistance additionally
-requires that the superseding object cannot be withheld, which is a Resolver /
-transparency-log property (DESIGN, not yet deployed). The `set_complete` field
-on `LatestWinsResult` is the local signal that lets a caller detect an
-incomplete (potentially withheld) set.
+Supersession is expressed by two things, both identity-bound because
+`cdroContentCore` hashes them: the `prev`/`links[]` Merkle edges, and the legacy
+self-asserted `supersedes` string. `latestWins` resolves a version set to its
+single head by following the identity-bound edges, giving a verifier a
+**latest-wins / monotone** rule instead of an unwitnessed pointer. Given the
+complete version set it will not name a superseded object as head; full
+rollback-replay resistance additionally requires that the superseding object
+cannot be withheld, which is a Resolver / transparency-log property (DESIGN, not
+yet deployed). `set_complete` on `LatestWinsResult` is the local signal letting a
+caller detect an incomplete (potentially withheld) set.
 
-Higher layers are built on SRAID objects: Vault/Resolver at L1, Inference
-Broker/Resonance at L2, GAP at L3. This package is intentionally tiny and has no
-storage, no HTTP surface, and no governance logic.
+The standalone **SRO** was removed in 0.4.0 — see the CHANGELOG.
+
+This package is object identity: canonical bytes, OIDs, hybrid signature
+verification, lineage. It has no storage, no HTTP surface, and no policy.
+
+It verifies **signatures, not identities**: `signer_kid` is an opaque string this
+package never resolves, and nothing here checks revocation. Deciding whether a
+key was trusted at signing time needs a key directory, which is a caller
+concern.
 
 ## Install
 
@@ -147,7 +151,6 @@ validateSignatureEnvelope(x: unknown): { ok: boolean; errors: string[] }
 
 // Types
 interface CDRO<TBody>            { /* envelope */ }
-interface SRO                    { /* supersession record */ }
 interface SignatureEnvelope      { ed25519: string; ml_dsa_65: string; signer_kid: string }
 ```
 
@@ -195,6 +198,21 @@ verify on `@noble/post-quantum`; SHA-256 on WebCrypto `subtle.digest`.
 The node default entry is unchanged and keeps its synchronous `node:crypto` fast
 paths. This subpath is purely additive. Added in 0.3.0; earlier versions export
 only `.` and `./canonicalize`.
+
+## Authority verification (deprecated subpath)
+
+Capability-grant and delegation-chain verification moved out of the core entry
+in 0.4.0. It is authorization policy, not object identity.
+
+```ts
+// Deprecated bridge, removed in 0.5.0.
+import { verifyAuthority, verifyDelegationChain } from '@synoi/sraid/authority'
+```
+
+Its future home is the standalone `@synoi/authority-verify` package, held
+unpublished until `signer_kid` resolves to something. `capabilityCovers`,
+`AuthorityResolver` and `GrantStatus` did NOT move — they are a pure predicate
+and a contract, and stay in the core entry above.
 
 ## Canonical form
 

@@ -322,31 +322,22 @@ export interface CDRO<TBody = unknown> {
   signature?: SignatureEnvelope
 }
 
-// ── SRO ───────────────────────────────────────────────────────────────────────
-
-/**
- * SRO — Mutation / Supersession Record.
- *
- * Links a successor CDRO to its predecessor and the actor that authorized
- * the supersession. SROs are themselves CDRO objects (so they're CDROs with
- * an `oid` and `signature`), but they have a specific body shape.
- *
- * Where CDROs are the "what" of the system, SROs are the "what changed."
- * They form an append-only chain: every supersedes pointer in a CDRO is
- * accompanied by an SRO that explains and witnesses the change.
- */
-export interface SROBody {
-  /** OID of the predecessor object being superseded. */
-  predecessor_oid: string
-  /** OID of the successor object that supersedes it. */
-  successor_oid: string
-  /** Why the predecessor was superseded. Free-form short string. */
-  reason: string
-  /** OID of the actor that authorized this mutation. */
-  authorized_by: string
-  /** Optional list of supporting evidence OIDs (audit trail). */
-  evidence_oids?: string[]
-}
-
-/** SRO is just a CDRO with a fixed body type. */
-export type SRO = CDRO<SROBody> & { type: 'sraid:sro' }
+// ── Supersession ──────────────────────────────────────────────────────────────
+//
+// The standalone SRO (Supersession Record Object, `type: 'sraid:sro'`) was
+// REMOVED in 0.4.0. It was the third of three overlapping supersession
+// mechanisms and the only one nothing consumed: `lineage.ts` never handled it,
+// no repo in the SynOI stack referenced it in any language, and the canon had
+// already retired the term (ADR_022 section 0: "an earlier, retired
+// object-format term").
+//
+// Supersession is now expressed by exactly two things, both identity-bound
+// because `cdroContentCore` hashes them:
+//
+//   prev / links[]  the Merkle edges - a head OID commits its whole reachable
+//                   history. Resolve a version set with `latestWins`.
+//   supersedes      the legacy self-asserted string, kept for compatibility.
+//
+// A caller that needs to record WHY something was superseded should put that
+// in the successor's own `body`, where it is hashed and signed, rather than in
+// a separate object whose linkage was never verified.

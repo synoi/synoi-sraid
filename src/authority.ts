@@ -1,6 +1,16 @@
 /**
  * @synoi/sraid — authority.ts
  *
+ * DEPRECATED BRIDGE (0.4.0). This module moved out of the core entry: it is
+ * authorization policy, not object identity. It is reachable only at the
+ * `@synoi/sraid/authority` subpath, and its future home is the standalone
+ * `@synoi/authority-verify` package (in-repo, unpublished until a key
+ * directory exists — see that package's README).
+ *
+ * The bridge stays through 0.4.x so nothing breaks while the new package is
+ * unpublished, and is removed in 0.5.0. `capabilityCovers`, `AuthorityResolver`
+ * and `GrantStatus` did NOT move; they remain in the core entry.
+ *
  * L4 authority VERIFIER for CDRO objects (the authorized axis).
  *
  * This is deliberately more than a shape check. Per the Adversary review
@@ -59,6 +69,8 @@
 import { cdroOid, cdroContentCore } from './oid.js'
 import { verifySignature } from './signature.js'
 import { verifyAttestation } from './attestation.js'
+import { capabilityCovers } from './capability.js'
+import type { AuthorityResolver, GrantStatus } from './capability.js'
 import type {
   AuthorityBlock,
   AuthorityDecision,
@@ -77,29 +89,6 @@ const VALID_DECISIONS: ReadonlySet<string> = new Set<AuthorityDecision>([
   'revoke',
 ])
 
-// ── Capability pattern matching ───────────────────────────────────────────────
-
-/**
- * Match a capability `target` against a grant `pattern`. Pure string logic,
- * re-stated here so L0 stays dependency-free (the same rule lives in
- * `@synoi/gap-types` `capabilityMatches`; L0 must not depend on L3).
- *
- *   - exact match → true
- *   - '*' → match-all
- *   - 'skill.*' matches 'skill.create' and deeper (segment-boundary only).
- *     A non-boundary 'admin.us*' must NOT match 'admin.users.delete'
- *     (privilege-escalation footgun) — only a '.'-anchored '*' is a wildcard.
- */
-export function capabilityCovers(pattern: string, target: string): boolean {
-  if (pattern === target) return true
-  if (pattern === '*') return true
-  if (pattern.endsWith('.*')) {
-    const prefix = pattern.slice(0, -1) // keep trailing '.', e.g. 'skill.'
-    return target.startsWith(prefix)
-  }
-  return false
-}
-
 // ── Resolver interface (live revocation / existence — resolver-dependent) ─────
 
 /**
@@ -111,23 +100,6 @@ export function capabilityCovers(pattern: string, target: string): boolean {
  * resolver agree on the contract; verifyAuthority works without it but
  * marks the corresponding result fields as not-checked.
  */
-export interface AuthorityResolver {
-  /**
-   * Resolve a grant OID to its current status. Implementations should
-   * return `{ exists: false }` for an unknown OID and `{ exists: true,
-   * revoked: true, revoked_at_ms }` for a revoked one.
-   */
-  resolveGrantStatus(grantOid: string): Promise<GrantStatus> | GrantStatus
-}
-
-export interface GrantStatus {
-  /** Whether the grant OID resolves to a known, published grant. */
-  exists: boolean
-  /** Whether the grant has been revoked. Only meaningful when `exists`. */
-  revoked?: boolean
-  /** When the revocation took effect, if revoked. */
-  revoked_at_ms?: number
-}
 
 // ── verifyAuthority ───────────────────────────────────────────────────────────
 
@@ -999,3 +971,8 @@ export function verifyDelegationChain(
 }
 
 import { canonicalize } from './canonicalize.js'
+
+// Re-exported for the subpath's own surface; these now live in core so a
+// grant store can use them without importing this verifier.
+export { capabilityCovers }
+export type { AuthorityResolver, GrantStatus }

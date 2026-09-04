@@ -1,17 +1,17 @@
 /**
  * @synoi/sraid — public surface.
  *
- * SRAID (Self-Routing Addressable Identity Data) is L0 of the SynOI SRAID Stack:
+ * SRAID is the object-identity layer: it defines what a signed object IS and
+ * how anyone re-derives and verifies its identity offline.
  *
- *   L0 SRAID            ← this package
- *   L1 Vault / Resolver
- *   L2 Inference Broker / Resonance
- *   L3 GAP (Governed Action Protocol)
- *   L4 Apps
+ * Scope, precisely:
+ *   IN   canonical serializer, OID computation, hybrid Ed25519 + ML-DSA-65
+ *        attestation verification, lineage resolution, shape validators.
+ *   OUT  storage, transport, key resolution, revocation, policy, enforcement.
  *
- * This package is intentionally small: types, canonical serializer,
- * OID computation, hybrid signature verification, and shape validators.
- * No storage, no HTTP, no governance — those are higher layers.
+ * It verifies SIGNATURES, not IDENTITIES: `signer_kid` is an opaque string
+ * this package never resolves, and nothing here checks revocation. Deciding
+ * whether a key was trusted at signing time is a caller/directory concern.
  */
 
 // Types
@@ -23,8 +23,6 @@ export type {
   CDRO,
   LineageLink,
   LinkRel,
-  SRO,
-  SROBody,
   SensitivityTier,
   SignatureEnvelope,
 } from './types.js'
@@ -53,7 +51,7 @@ export { verifyMlDsa65, isNativeMlDsaAvailable } from './mldsa.js'
 // rotated or compromised key cannot be served stale on a later verify.
 export { evictKeyFromCaches } from './internal/key-cache.js'
 
-// L2 DSSE attestation — PAE type-binding, hybrid Ed25519 + ML-DSA-65 both
+// DSSE attestation — PAE type-binding, hybrid Ed25519 + ML-DSA-65 both
 // required. The preferred signing path (replaces the legacy bare-bytes
 // SignatureEnvelope; closes the cross-type confusion gap SRAID F7 / A4).
 export {
@@ -65,7 +63,8 @@ export {
   type VerifyAttestationResult,
 } from './attestation.js'
 
-// L3 lineage (Merkle-DAG) — unify supersedes/SRO/prev; latest-wins resolution.
+// Lineage (Merkle-DAG) — unify the `supersedes` string with the identity-bound
+// `prev`/`links` edges; latest-wins resolution over a version set.
 export {
   lineageLinks,
   supersededOids,
@@ -73,7 +72,7 @@ export {
   type LatestWinsResult,
 } from './lineage.js'
 
-// L4 propagating sensitivity — coarse, opaque tier + monotone max() carry-forward.
+// Propagating sensitivity — coarse, opaque tier + monotone max() carry-forward.
 export {
   SENSITIVITY_TIERS,
   SENSITIVITY_DEFAULT,
@@ -84,35 +83,27 @@ export {
   sensitivityMonotoneCheck,
 } from './sensitivity.js'
 
-// L4 authority verification (the authorized axis).
-export {
-  verifyAuthority,
-  capabilityCovers,
-  type VerifyAuthorityInput,
-  type VerifyAuthorityResult,
-  type AuthorityResolver,
-  type GrantStatus,
-  type GrantBodyShape,
-} from './authority.js'
-
-// L4 delegation-chain verification (K2) — VERIFY-ONLY, offline, no enforcement.
-// Always reports revocation_checked/existence_checked false (no live claim).
-export {
-  verifyDelegationChain,
-  MAX_DELEGATION_DEPTH,
-  type VerifyDelegationChainInput,
-  type VerifyDelegationChainResult,
-  type HopResult,
-  type LinkPubkeys,
-} from './authority.js'
+// Capability matching + the live-grant-status contract. The leaf primitive a
+// grant store needs: pure string logic, no crypto, no I/O, no live claim.
+export { capabilityCovers } from './capability.js'
+export type { AuthorityResolver, GrantStatus } from './capability.js'
 
 // Shape validators.
 export {
   validateCdro,
-  validateSro,
   validateSignatureEnvelope,
   validateAttestationEnvelope,
   validateAuthorityBlock,
   validateLineageLink,
   type ValidationResult,
 } from './validate.js'
+
+// MOVED IN 0.4.0 — the grant and delegation-chain VERIFIERS (`verifyAuthority`,
+// `verifyDelegationChain`, `MAX_DELEGATION_DEPTH`) are authorization policy,
+// not object identity, and are no longer exported from this entry. They live
+// at the `@synoi/sraid/authority` subpath, unchanged and still verify-only.
+//
+// `capabilityCovers`, `AuthorityResolver` and `GrantStatus` did NOT move: they
+// are the leaf primitive and the contract, and are exported above.
+//
+// REMOVED IN 0.4.0 — `validateSro`, `SRO`, `SROBody`. See CHANGELOG 0.4.0.

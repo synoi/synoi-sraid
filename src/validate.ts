@@ -20,7 +20,6 @@ import type {
   LineageLink,
   LinkRel,
   SignatureEnvelope,
-  SRO,
 } from './types.js'
 import { SENSITIVITY_TIERS, isSensitivityTier } from './sensitivity.js'
 
@@ -327,68 +326,7 @@ function validateAttestationEnvelopeShape(x: unknown): string[] {
   return errors
 }
 
-// ── SRO validation ───────────────────────────────────────────────────────────
-
-/**
- * Validate that `x` matches the SRO shape — a CDRO whose `type` is
- * "sraid:sro" and whose `body` carries predecessor/successor pointers and
- * an authorizer. Reuses validateCdro and layers SRO-specific checks on
- * top.
- *
- *   [S01] envelope is not a valid CDRO
- *   [S02] type is not "sraid:sro"
- *   [S03] body.predecessor_oid not a canonical OID (sha256:<64 hex>)
- *   [S04] body.successor_oid not a canonical OID (sha256:<64 hex>)
- *   [S05] body.reason not a non-empty string
- *   [S06] body.authorized_by not a non-empty string
- *   [S07] body.evidence_oids, if present, not an array of non-empty strings
- */
-export function validateSro(x: unknown): ValidationResult {
-  const cdroResult = validateCdro(x)
-  if (!cdroResult.ok) {
-    return { ok: false, errors: cdroResult.errors.map((e) => '[S01] ' + e) }
-  }
-  const errors: string[] = []
-  const o = x as { type?: unknown; body?: unknown }
-
-  if (o.type !== 'sraid:sro') {
-    errors.push('[S02] type must be "sraid:sro" for an SRO')
-  }
-  if (o.body === null || typeof o.body !== 'object' || Array.isArray(o.body)) {
-    errors.push('[S01] body must be an object')
-    return { ok: false, errors }
-  }
-  const b = o.body as Record<string, unknown>
-
-  if (!isCanonicalOid(b['predecessor_oid'])) {
-    errors.push('[S03] body.predecessor_oid must be a canonical OID (sha256:<64 hex>)')
-  }
-  if (!isCanonicalOid(b['successor_oid'])) {
-    errors.push('[S04] body.successor_oid must be a canonical OID (sha256:<64 hex>)')
-  }
-  if (typeof b['reason'] !== 'string' || (b['reason'] as string).length === 0) {
-    errors.push('[S05] body.reason must be a non-empty string')
-  }
-  if (typeof b['authorized_by'] !== 'string' || (b['authorized_by'] as string).length === 0) {
-    errors.push('[S06] body.authorized_by must be a non-empty string')
-  }
-  if (b['evidence_oids'] !== undefined) {
-    if (!Array.isArray(b['evidence_oids'])) {
-      errors.push('[S07] body.evidence_oids, if present, must be an array')
-    } else {
-      const arr = b['evidence_oids'] as unknown[]
-      for (let i = 0; i < arr.length; i++) {
-        if (typeof arr[i] !== 'string' || (arr[i] as string).length === 0) {
-          errors.push(`[S07] body.evidence_oids[${i}] must be a non-empty string`)
-        }
-      }
-    }
-  }
-
-  return { ok: errors.length === 0, errors }
-}
-
-// Type-only re-exports so consumers can do `import type { CDRO, SRO } from '@synoi/sraid'`
+// Type-only re-exports so consumers can do `import type { CDRO } from '@synoi/sraid'`
 // after pulling validators from this module.
 export type {
   AttestationEnvelope,
@@ -397,6 +335,5 @@ export type {
   CDRO,
   LineageLink,
   LinkRel,
-  SRO,
   SignatureEnvelope,
 }
