@@ -39,62 +39,100 @@ npm install @synoi/sraid
 ```ts
 import {
   canonicalize,
-  oidOf,
-  verifySignature,
+  cdroOid,
+  cdroContentCore,
+  pae,
+  verifyAttestation,
   validateCdro,
+  type AttestationEnvelope,
   type CDRO,
-  type SignatureEnvelope,
 } from '@synoi/sraid'
 import { ed25519 } from '@noble/curves/ed25519'
 import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js'
 import { randomBytes } from 'node:crypto'
 
-// 1. Build a CDRO body and derive its OID.
-const body = { capability: 'door.unlock', risk_class: 'B' }
-const oid = oidOf(body)                          // sha256:<64 hex chars>
-
-const cdro: CDRO<typeof body> = {
-  oid,
+// 1. Build the CDRO content core: every field EXCEPT the detached
+//    envelope fields (oid, signature, attestation, ...).
+const core = {
   type: 'gap:capability_declaration',
-  sraid_version: '2.0',
+  sraid_version: '2.0' as const,
   tenant_id: 't-home',
   created_at_ms: Date.now(),
   created_by: 'actor:skill:demo',
-  body,
+  body: { capability: 'door.unlock', risk_class: 'B' },
 }
 
-console.log(validateCdro(cdro))                  // { ok: true, errors: [] }
+// 2. Identity is the hash of the WHOLE content core, not just the body.
+//    Use cdroOid(core) — NOT oidOf(core.body).
+const cdro: CDRO<typeof core.body> = { oid: cdroOid(core), ...core }
 
-// 2. Sign the canonical bytes with both Ed25519 and ML-DSA-65.
-const canonical = canonicalize(cdro.body)
-const message = new TextEncoder().encode(canonical)
+console.log(validateCdro(cdro))            // { ok: true, errors: [] }
+console.log(cdro.oid === cdroOid(cdro))    // true
+
+// 3. Sign the canonical content core through the DSSE PAE, which binds
+//    payloadType into the signed bytes (prevents cross-type replay).
+const payloadType = 'application/vnd.synoi.sraid+json'
+const payload = canonicalize(cdroContentCore(cdro))
+const signedBytes = pae(payloadType, payload)
 
 const edPriv = new Uint8Array(randomBytes(32))
 const edPub = ed25519.getPublicKey(edPriv)
 const mlKeys = ml_dsa65.keygen(new Uint8Array(randomBytes(32)))
 
-const envelope: SignatureEnvelope = {
-  ed25519: Buffer.from(ed25519.sign(message, edPriv)).toString('base64'),
-  ml_dsa_65: Buffer.from(ml_dsa65.sign(message, mlKeys.secretKey)).toString('base64'),
-  signer_kid: 'synoi-demo-2026-05',
+const attestation: AttestationEnvelope = {
+  payloadType,
+  payload,
+  signatures: [
+    {
+      alg: 'ed25519',
+      sig: Buffer.from(ed25519.sign(signedBytes, edPriv)).toString('base64'),
+      keyid: 'synoi-demo-2026-05',
+    },
+    {
+      alg: 'ml-dsa-65',
+      sig: Buffer.from(ml_dsa65.sign(signedBytes, mlKeys.secretKey)).toString('base64'),
+      keyid: 'synoi-demo-2026-05',
+    },
+  ],
 }
 
-// 3. Verify.
-const v = verifySignature({
-  canonical,
-  envelope,
+// 4. Attaching the attestation does NOT change identity — the six detached
+//    envelope fields are stripped before hashing.
+const attested = { ...cdro, attestation }
+console.log(cdroOid(attested) === cdro.oid) // true
+
+// 5. Verify. `valid` is true only when BOTH signatures verify over the PAE.
+const v = verifyAttestation({
+  envelope: attestation,
   ed25519_pub: edPub,
   ml_dsa_pub: mlKeys.publicKey,
+  expectedPayloadType: payloadType,
 })
-console.log(v)                                   // { valid: true, reasons: [] }
+console.log(v)                             // { valid: true, reasons: [] }
 ```
+
+> **Identity is over the content core, not the body.** `oidOf(cdro.body)` is
+> *not* a CDRO's OID; use `cdroOid`. `verifySignature` / `SignatureEnvelope`
+> (bare-bytes, no payload-type binding) remain exported for compatibility but
+> are superseded by the attestation path above.
 
 ## Surface
 
 ```ts
 canonicalize(value: unknown): string
+
+// CDRO identity — hash the content core. THIS is an object's OID.
+cdroOid(cdro: unknown): string
+cdroContentCore(cdro: unknown): Record<string, unknown>
+CDRO_ENVELOPE_FIELDS: readonly string[]   // the six stripped fields
+
+// Value-level hashing. oidOf(cdro.body) is NOT the CDRO's OID.
 oidOf(canonical: unknown): string
 oidOfCanonical(canonical: string | Uint8Array): string
+
+// DSSE attestation — payload-type bound, both signatures required.
+verifyAttestation(input): { valid: boolean; reasons: string[] }
+pae(payloadType: string, payload: string | Uint8Array): Uint8Array
 
 verifySignature(args: {
   canonical:   string | Uint8Array
@@ -160,7 +198,8 @@ only `.` and `./canonicalize`.
 
 ## Canonical form
 
-The canonical form is recursive JCS-lite JSON:
+The canonical form is a strict RFC 8785 (JCS) profile, tested against the
+RFC 8785 vectors (`test/rfc8785-conformance.test.ts`):
 
 - primitives via `JSON.stringify`,
 - objects emit keys in lexicographic order,
@@ -170,7 +209,7 @@ The canonical form is recursive JCS-lite JSON:
 
 This canonical form is a wire contract. **Any byte-level change to the
 serializer changes every OID and invalidates every previously-created
-signature.** Treat it as frozen for SRAID v1.0; evolve it only via a new,
+signature.** Treat it as frozen for SRAID v2.0; evolve it only via a new,
 explicitly versioned canonical profile.
 
 ## OID format
@@ -179,8 +218,12 @@ explicitly versioned canonical profile.
 OID = "sha256:" + lowercase_hex( sha256( canonicalize(content) ) )
 ```
 
-The hash input is the OBJECT MINUS its own `oid` and `signature` fields, so
-signature rotation does not change the OID.
+The hash input is the object MINUS the six detached envelope fields
+(`oid`, `signature`, `ml_dsa_signature`, `signature_key_id`,
+`signature_algorithm`, `attestation`) — see `CDRO_ENVELOPE_FIELDS`. Everything
+else is hashed, including `authority`, `sensitivity`, `prev`, `links` and
+`supersedes`, so those are identity-bound and cannot be silently stripped.
+Signing or rotating a signature never changes the OID.
 
 ## Why hybrid signatures
 

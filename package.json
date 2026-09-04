@@ -1,6 +1,6 @@
 {
   "name": "@synoi/sraid",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Reference TypeScript library for the SynOI SRAID (Self-Routing Addressable Identity Data) protocol - types, canonical object serializer, OID computation, signature verification, and validators for L0 of the SRAID Stack.",
   "license": "MIT",
   "homepage": "https://synoi.systems",

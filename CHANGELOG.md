@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.3.1 (2026-09-04)
+
+Documentation and type-comment fix. **No code path, wire format, canonical serializer, OID
+projection, or signature behaviour changes in this release.** An object that verified under 0.3.0
+verifies byte-identically here.
+
+The README's minimal example derived a CDRO's `oid` with `oidOf(body)`, which hashes only the body.
+A CDRO's identity is `cdroOid`, over the whole content core (the object minus the six detached
+envelope fields). The two differ, and `validateCdro` does not catch the difference because it is a
+shape check and never recomputes the hash — so the documented example produced an object whose
+stamped `oid` was not its identity, and reported `{ ok: true, errors: [] }`.
+
+- README: the minimal example now derives identity with `cdroOid` and signs through the DSSE
+  attestation path (`pae` + `verifyAttestation`), which binds `payloadType` into the signed bytes.
+  The legacy bare-bytes `verifySignature` / `SignatureEnvelope` remain exported and unchanged, but
+  are no longer what the example teaches.
+- README: `cdroOid`, `cdroContentCore`, `CDRO_ENVELOPE_FIELDS`, `verifyAttestation` and `pae` were
+  exported but missing from the Surface section, so the correct identity function was undiscoverable
+  from the landing page. Added.
+- README: the OID section listed only `oid` and `signature` as stripped; it now names all six
+  `CDRO_ENVELOPE_FIELDS` and states that `authority`, `sensitivity`, `prev`, `links` and
+  `supersedes` are hashed and therefore identity-bound.
+- README: the canonical form was described as "JCS-lite". It is a strict RFC 8785 profile tested
+  against the RFC 8785 vectors; described as such, with the test named.
+- README: the frozen-profile note said "SRAID v1.0". The protocol version is 2.0.
+- `src/types.ts`: the `CDRO` docstring and the `oid` field comment repeated the same
+  `canonicalize(body)` error. Both now point at `cdroContentCore` / `cdroOid`. Comments only; no
+  type or runtime change.
+- `test/readme-example.test.ts`: previously asserted only `validateCdro().ok` and
+  `verifySignature().valid`, so it passed while the example was wrong. It now asserts the identity
+  invariant (`cdro.oid === cdroOid(cdro)`, preserved across attestation) and carries an explicit
+  regression guard proving `oidOf(body) !== cdroOid(cdro)`. Its header also claimed it was excluded
+  from `npm test`; `test/run-all.ts` globs every `*.test.ts`, so it always ran — the comment was
+  wrong, not the wiring.
+
 ## 0.3.0 (2026-08-04)
 
 Additive, no wire change. Nothing about the signed bytes, the OID projection, or the canonical

@@ -233,14 +233,15 @@ export interface AttestationEnvelope {
  * CDRO — Canonical Data Record Object.
  *
  * The base shape every signed CDRO object takes. The `oid` field is
- * `sha256:` + hex(sha256(canonicalize(body))) where the body is the CDRO
- * minus the `oid` and `signature` fields.
+ * `sha256:` + hex(sha256(canonicalize(cdroContentCore(obj)))) — the WHOLE
+ * object minus the six detached envelope fields (`CDRO_ENVELOPE_FIELDS`).
+ * It is NOT a hash of `body` alone: use `cdroOid`, not `oidOf(cdro.body)`.
  *
  * Mirrors `GapCdroEnvelope` in synoi-gateway so a GAP object IS a CDRO.
  * Higher-layer packages narrow `body` with their own type.
  */
 export interface CDRO<TBody = unknown> {
-  /** "sha256:" + hex(sha256(canonicalize(cdro_minus_oid_and_signature))). */
+  /** "sha256:" + hex(sha256(canonicalize(cdroContentCore(this)))). */
   oid: string
   /** Object type discriminator (e.g. "gap:capability_grant"). */
   type: string
