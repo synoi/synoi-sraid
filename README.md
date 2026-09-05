@@ -1,7 +1,11 @@
 # @synoi/sraid
 
-Reference TypeScript implementation of **SRAID (Self-Routing Addressable
-Identity Data)**, L0 of the SynOI SRAID Stack. MIT-licensed.
+Reference TypeScript implementation of **SRAID**, the SynOI content-addressed
+object format. MIT-licensed.
+
+SRAID is a name, not an acronym. It has been expanded two different ways in two
+different places; neither expansion added anything, so this package no longer
+expands it. What it does is below.
 
 SRAID defines:
 
@@ -199,20 +203,16 @@ The node default entry is unchanged and keeps its synchronous `node:crypto` fast
 paths. This subpath is purely additive. Added in 0.3.0; earlier versions export
 only `.` and `./canonicalize`.
 
-## Authority verification (deprecated subpath)
+## Authority verification
 
-Capability-grant and delegation-chain verification moved out of the core entry
-in 0.4.0. It is authorization policy, not object identity.
+Capability-grant and delegation-chain verification is NOT in this package. It is
+authorization policy, not object identity, and it moved to
+[`@synoi/authority-verify`](https://github.com/synoi/synoi-authority-verify) in
+0.4.0.
 
-```ts
-// Deprecated bridge, removed in 0.5.0.
-import { verifyAuthority, verifyDelegationChain } from '@synoi/sraid/authority'
-```
-
-Its future home is the standalone `@synoi/authority-verify` package, held
-unpublished until `signer_kid` resolves to something. `capabilityCovers`,
-`AuthorityResolver` and `GrantStatus` did NOT move — they are a pure predicate
-and a contract, and stay in the core entry above.
+`capabilityCovers`, `AuthorityResolver` and `GrantStatus` did NOT move - they are
+a pure string predicate and a live-status contract, and remain in the surface
+above.
 
 ## Canonical form
 

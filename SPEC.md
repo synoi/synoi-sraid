@@ -1,4 +1,4 @@
-# SRAID - Self-Routing Addressable Identity Data, Core Object Specification
+# SRAID - Core Object Specification
 
 **Core Specification, Version 1.0**
 
