@@ -183,3 +183,23 @@ export async function oidOfCanonical(canonical: string | Uint8Array): Promise<st
 export async function cdroOid(cdro: unknown): Promise<string> {
   return oidOf(cdroContentCore(cdro))
 }
+
+/**
+ * Compute the PAYLOAD id of a CDRO: the OID of its `body` alone. ASYNC
+ * counterpart of the node `bodyOid`, byte-identical for the same input.
+ *
+ * `cdroOid` is issuance-addressed - it hashes `tenant_id`, `created_at_ms` and
+ * `created_by` too, so the same payload recorded twice yields two OIDs.
+ * `bodyOid` is payload-addressed: use it for dedup, idempotency and cache
+ * keys, never for anything signed, cited or linked. See `oid.ts` in the node
+ * entry for the full rationale and limits.
+ */
+export async function bodyOid(cdro: unknown): Promise<string> {
+  if (cdro === null || typeof cdro !== 'object' || Array.isArray(cdro)) {
+    throw new TypeError('bodyOid: argument must be a CDRO object')
+  }
+  if (!('body' in (cdro as Record<string, unknown>))) {
+    throw new TypeError('bodyOid: CDRO has no body')
+  }
+  return oidOf((cdro as Record<string, unknown>)['body'])
+}

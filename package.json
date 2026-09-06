@@ -1,6 +1,6 @@
 {
   "name": "@synoi/sraid",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "SRAID reference implementation: canonical JSON serializer, content-addressed OIDs, hybrid Ed25519 + ML-DSA-65 signature verification, lineage, and shape validators. No storage, no transport, no policy.",
   "license": "MIT",
   "homepage": "https://synoi.systems",

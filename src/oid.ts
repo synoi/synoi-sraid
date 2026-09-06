@@ -81,3 +81,48 @@ export function oidOfCanonical(canonical: string | Uint8Array): string {
 export function cdroOid(cdro: unknown): string {
   return oidOf(cdroContentCore(cdro))
 }
+
+/**
+ * Compute the PAYLOAD id of a CDRO: the OID of its `body` alone.
+ *
+ * `cdroOid` is ISSUANCE-addressed. Its input keeps `tenant_id`,
+ * `created_at_ms` and `created_by`, so the same payload recorded twice - a
+ * millisecond apart, or by two tenants - yields two unrelated OIDs. That is
+ * correct for a receipt: a CDRO attests that THIS actor recorded THIS content
+ * at THIS time, and two such acts are genuinely two different events.
+ *
+ * It also means `cdroOid` cannot answer "have I seen this payload before?".
+ * `bodyOid` can. The two are complementary and both are cheap:
+ *
+ *   cdroOid(obj)   this issuance   - identity of the recording act
+ *   bodyOid(obj)   this payload    - identity of the content recorded
+ *
+ * Use `bodyOid` for dedup, idempotency keys, replay detection, cache keys, and
+ * "is this the same record as the one that tenant sent us". Use `cdroOid` for
+ * anything that must be signed, cited, or linked - lineage edges, receipts,
+ * attestations. NEVER substitute one for the other: `bodyOid` deliberately
+ * hashes NOTHING but the body, so it is invariant across the actor, the
+ * timestamp and the tenant, which is exactly what makes it useful and exactly
+ * what makes it wrong as an identity.
+ *
+ * DERIVED, NOT STORED. This is a function over an object you already hold, not
+ * a field on the envelope. A stored `body_oid` would be a second assertion
+ * that could disagree with the body beside it, and redundant data inside a
+ * signed envelope is a liability, not a feature. Computing it costs one
+ * canonicalization and cannot lie.
+ *
+ * LIMIT: this requires the body. An object whose body is absent or encrypted
+ * cannot be payload-addressed by a holder who cannot read it. That case needs
+ * a signed field rather than a derivation, and is deliberately not solved here.
+ *
+ * Throws if `cdro` is not an object, matching `cdroContentCore`.
+ */
+export function bodyOid(cdro: unknown): string {
+  if (cdro === null || typeof cdro !== 'object' || Array.isArray(cdro)) {
+    throw new TypeError('bodyOid: argument must be a CDRO object')
+  }
+  if (!('body' in (cdro as Record<string, unknown>))) {
+    throw new TypeError('bodyOid: CDRO has no body')
+  }
+  return oidOf((cdro as Record<string, unknown>)['body'])
+}
