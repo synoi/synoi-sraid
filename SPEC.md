@@ -1,6 +1,6 @@
 # SRAID - Core Object Specification
 
-**Core Specification, Version 1.0**
+**Core Specification, Version 2.0**
 
 > To the extent possible under law, SynOI Inc. has waived all copyright and related rights to this specification under the Creative Commons CC0 1.0 Universal Public Domain Dedication (https://creativecommons.org/publicdomain/zero/1.0/). The reference implementation `@synoi/sraid` is MIT-licensed; the conformance suite `@synoi/conformance` is Apache-2.0-licensed.
 
@@ -36,7 +36,7 @@ A SRAID object (the Canonical Data Record Object, or **CDRO**) is a map with the
 | `attestation` | optional | If present, a detached **DSSE attestation envelope** (Section 6) carrying one or more signatures over the object's PAE-encoded canonical bytes. This is the preferred signing form. May be absent on draft or unsigned objects. |
 | `signature` | optional | LEGACY. If present, a single detached hybrid signature envelope over the object's bare canonical bytes (Section 6.4). Retained for back-compat; new producers SHOULD emit `attestation` instead. May be absent on draft or unsigned objects. |
 
-The `oid`, `attestation`, and `signature` members are excluded from the OID input (Section 4) so that the same content produces the same OID and re-signing never changes identity. All other members are part of the canonical content and therefore contribute to the OID.
+The six detached envelope members `oid`, `signature`, `ml_dsa_signature`, `signature_key_id`, `signature_algorithm`, and `attestation` are excluded from the OID input (Section 4) so that the same content produces the same OID and re-signing never changes identity. All other members are part of the canonical content and therefore contribute to the OID.
 
 **Lineage fields are independent.** An object MAY carry `supersedes`, `prev`, and one or more `links[]` simultaneously. `supersedes` asserts a version-replacement relationship (this object is the authoritative successor of the referenced OID); `prev` is the hash-chain backpointer for ordered append; `links[]` are typed semantic edges (L3). Each is validated for canonical-OID format in isolation. The validator does NOT enforce agreement among them (for example it does not require `supersedes === prev`), nor does it resolve or fetch the referenced objects. Higher layers (Vault/Resolver, GAP) are responsible for any cross-field lineage semantics. The standalone supersession receipt (SRO, type `sraid:sro`) was REMOVED in 0.4.0: nothing in any language consumed it, `lineage.ts` never handled it, and the canon had already retired the term (ADR_022 section 0). A caller recording WHY something was superseded should put that in the successor's own `body`, where it is hashed and signed.
 
@@ -65,14 +65,14 @@ A binary profile, **`sraid/cbor`** (CBOR per RFC 8949 with COSE per RFC 9052 for
 
 > The OID is the single normative identifier of SRAID v1.0.
 
-The OID is computed over the canonical bytes of the CDRO with its `oid`, `attestation`, and `signature` members excluded from the input (so signing or re-signing never changes the OID):
+The OID is computed over the canonical bytes of the CDRO with its six detached envelope members `oid`, `signature`, `ml_dsa_signature`, `signature_key_id`, `signature_algorithm`, and `attestation` excluded from the input (so signing or re-signing never changes the OID):
 
 ```
 OID = "sha256:" + lowercase_hex( SHA-256( canonical_bytes ) )
 ```
 
 - An OID MUST match the regular expression `^sha256:[0-9a-f]{64}$`.
-- The OID is both the object's content identity and its deduplication key: two CDROs whose members are identical after removing `oid`, `attestation`, and `signature` MUST yield identical canonical bytes and therefore an identical OID.
+- The OID is both the object's content identity and its deduplication key: two CDROs whose members are identical after removing the six detached envelope members and `signature` MUST yield identical canonical bytes and therefore an identical OID.
 - Deduplication, supersession, and any trust or truth decision MUST use the full OID. An implementation MUST NOT substitute a truncation of the hash for these purposes.
 - The 64-hex `sha256:` OID is the sole normative object identifier. The class/schema-prefixed `[4+12]` short form of Section 5 is a non-normative routing prefix only and is never an object identity.
 
@@ -99,7 +99,7 @@ The preferred form is a **DSSE** (Dead Simple Signing Envelope) JSON-profile env
 The `attestation` member has three members:
 
 - `payloadType` — a non-empty media-type string identifying the payload kind (for example `application/vnd.synoi.sraid+json`, or `application/vnd.in-toto+json` for an in-toto/SLSA supply-chain attestation),
-- `payload` — the canonical UTF-8 string that is attested (the CDRO content core per Section 3–4, i.e. the object minus its `oid`, `attestation`, and `signature` members), and
+- `payload` — the canonical UTF-8 string that is attested (the CDRO content core per Section 3–4, i.e. the object minus its six detached envelope members and `signature` members), and
 - `signatures` — an array of signature entries, each with members `alg` (the algorithm identifier, e.g. `"ed25519"` or `"ml-dsa-65"`), `sig` (the base64-encoded signature bytes), and an optional `keyid` (an opaque string identifying the keypair).
 
 ### 6.2 Pre-Authentication Encoding (PAE) — type binding
@@ -119,7 +119,7 @@ DSSE is, by itself, an OR-of-signatures envelope. SRAID layers a stricter rule o
 
 ### 6.4 Legacy bare-bytes envelope (`signature`) — deprecated
 
-For back-compat, an object MAY instead carry the legacy `signature` member with three members `ed25519`, `ml_dsa_65` (both base64-encoded signatures), and `signer_kid` (an opaque non-empty string). In the legacy form both signatures are computed over the bare canonical bytes (the CDRO minus its `oid`, `attestation`, and `signature` members, per Section 4) with NO payload-type binding. A verifier MUST require BOTH signatures to verify. New producers SHOULD NOT emit the legacy form; it lacks the PAE type binding of Section 6.2 and is retained only so objects minted before DSSE adoption keep verifying.
+For back-compat, an object MAY instead carry the legacy `signature` member with three members `ed25519`, `ml_dsa_65` (both base64-encoded signatures), and `signer_kid` (an opaque non-empty string). In the legacy form both signatures are computed over the bare canonical bytes (the CDRO minus its six detached envelope members, per Section 4) with NO payload-type binding. A verifier MUST require BOTH signatures to verify. New producers SHOULD NOT emit the legacy form; it lacks the PAE type binding of Section 6.2 and is retained only so objects minted before DSSE adoption keep verifying.
 
 ### 6.5 Binary profile
 

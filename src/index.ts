@@ -88,6 +88,12 @@ export {
 export { capabilityCovers } from './capability.js'
 export type { AuthorityResolver, GrantStatus } from './capability.js'
 
+// THE consumer entry point. One call: shape, binding, OID recompute, and both
+// signatures, in cheapest-first order. Prefer this over assembling validateCdro
+// + a hand-written binding comparison + verifyAttestation — that pattern is
+// what let the __proto__ OID collision through a correctly-written check.
+export { verifyCdro, type VerifyCdroInput, type VerifyCdroResult } from './verify-cdro.js'
+
 // Shape validators.
 export {
   validateCdro,
