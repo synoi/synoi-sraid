@@ -1,0 +1,76 @@
+{
+  "_comment": "Conformance vectors for the __proto__ OID collision in the CDRO content-core projection. Written BEFORE the fix, and expected to FAIL against <=0.4.0. Objects are stored as RAW JSON TEXT, not as parsed JSON members, because a member literally named __proto__ does not survive a parse/re-serialize round trip in every toolchain: JSON.parse creates it as an OWN property, but plain assignment to it invokes the prototype setter instead. Storing the text keeps the vector language-agnostic, so an SDK in any language can consume it by parsing the string itself.",
+  "_defect": "internal/content-core.ts builds the core with plain assignment (core[k] = v). For k === '__proto__' that sets the prototype of the accumulator rather than creating an own property, so the member is silently dropped. canonicalize uses Object.keys, which DOES return an own '__proto__'. The two projections in the same library therefore disagree, two objects with different content produce one OID, and the binding check att.payload === canonicalize(cdroContentCore(x)) accepts the polluted object because BOTH sides drop the member.",
+  "_rule": "REJECT. An object carrying an own '__proto__' member is not a valid CDRO. Rationale: a key that half the JS ecosystem mishandles has no business inside a signed byte string, and 'reject' is the only rule that cannot be implemented inconsistently across languages. The alternative rule, HASH (treat it as an ordinary content key, matching canonicalize and matching every non-JS SDK), also resolves the collision and is what SPEC.md section 2 currently implies; if that rule is chosen instead, flip expect.reject to false in P-01..P-04 and the must_not_collide assertions still hold unchanged. That is deliberate: must_not_collide is the defect, the rule is the remedy.",
+  "_scope": "Only '__proto__' is affected. 'constructor' and 'prototype' are ordinary own properties under plain assignment and MUST continue to be hashed. P-06 and P-07 are negative controls guarding against an over-broad fix.",
+  "clean_object_json": "{\"oid\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"type\":\"gap:capability_grant\",\"sraid_version\":\"2.0\",\"tenant_id\":\"t-home\",\"created_at_ms\":1767225600000,\"created_by\":\"actor:skill:demo\",\"body\":{\"capability\":\"door.unlock\"}}",
+  "cases": [
+    {
+      "id": "P-01",
+      "name": "own __proto__ on the envelope must not collide with the clean object",
+      "object_json": "{\"oid\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"type\":\"gap:capability_grant\",\"sraid_version\":\"2.0\",\"tenant_id\":\"t-home\",\"created_at_ms\":1767225600000,\"created_by\":\"actor:skill:demo\",\"body\":{\"capability\":\"door.unlock\"},\"__proto__\":{\"escalated\":true}}",
+      "expect": {
+        "must_not_collide_with_clean": true,
+        "reject": true,
+        "core_must_not_be_prototype_polluted": true
+      }
+    },
+    {
+      "id": "P-02",
+      "name": "canonicalize and cdroContentCore must agree on member presence",
+      "object_json": "{\"oid\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"type\":\"gap:capability_grant\",\"sraid_version\":\"2.0\",\"tenant_id\":\"t-home\",\"created_at_ms\":1767225600000,\"created_by\":\"actor:skill:demo\",\"body\":{\"capability\":\"door.unlock\"},\"__proto__\":{\"escalated\":true}}",
+      "expect": {
+        "projections_must_agree": true,
+        "reject": true
+      }
+    },
+    {
+      "id": "P-03",
+      "name": "binding check must not accept a polluted object against a clean payload",
+      "object_json": "{\"oid\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"type\":\"gap:capability_grant\",\"sraid_version\":\"2.0\",\"tenant_id\":\"t-home\",\"created_at_ms\":1767225600000,\"created_by\":\"actor:skill:demo\",\"body\":{\"capability\":\"door.unlock\"},\"__proto__\":{\"escalated\":true}}",
+      "expect": {
+        "binding_must_reject": true,
+        "reject": true
+      }
+    },
+    {
+      "id": "P-04",
+      "name": "own __proto__ nested inside body must not collide",
+      "object_json": "{\"oid\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"type\":\"gap:capability_grant\",\"sraid_version\":\"2.0\",\"tenant_id\":\"t-home\",\"created_at_ms\":1767225600000,\"created_by\":\"actor:skill:demo\",\"body\":{\"capability\":\"door.unlock\",\"__proto__\":{\"escalated\":true}}}",
+      "expect": {
+        "must_not_collide_with_clean": true,
+        "note": "Nested __proto__ inside body does NOT collide: canonicalize serialises body as a value and the member survives. Whether the reject rule is SHALLOW (top-level only) or DEEP (recursive) is an open decision; deep rejection costs a recursive walk on every validate. Not asserted here."
+      }
+    },
+    {
+      "id": "P-05",
+      "name": "two DIFFERENT __proto__ payloads must not collide with each other",
+      "object_json": "{\"oid\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"type\":\"gap:capability_grant\",\"sraid_version\":\"2.0\",\"tenant_id\":\"t-home\",\"created_at_ms\":1767225600000,\"created_by\":\"actor:skill:demo\",\"body\":{\"capability\":\"door.unlock\"},\"__proto__\":{\"escalated\":false}}",
+      "expect": {
+        "must_not_collide_with_case": "P-01",
+        "reject": true
+      }
+    },
+    {
+      "id": "P-06",
+      "name": "NEGATIVE CONTROL: constructor is an ordinary content key and must be hashed",
+      "object_json": "{\"oid\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"type\":\"gap:capability_grant\",\"sraid_version\":\"2.0\",\"tenant_id\":\"t-home\",\"created_at_ms\":1767225600000,\"created_by\":\"actor:skill:demo\",\"body\":{\"capability\":\"door.unlock\"},\"constructor\":{\"harmless\":true}}",
+      "expect": {
+        "must_not_collide_with_clean": true,
+        "reject": false,
+        "member_must_survive_into_core": "constructor"
+      }
+    },
+    {
+      "id": "P-07",
+      "name": "NEGATIVE CONTROL: prototype is an ordinary content key and must be hashed",
+      "object_json": "{\"oid\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"type\":\"gap:capability_grant\",\"sraid_version\":\"2.0\",\"tenant_id\":\"t-home\",\"created_at_ms\":1767225600000,\"created_by\":\"actor:skill:demo\",\"body\":{\"capability\":\"door.unlock\"},\"prototype\":{\"harmless\":true}}",
+      "expect": {
+        "must_not_collide_with_clean": true,
+        "reject": false,
+        "member_must_survive_into_core": "prototype"
+      }
+    }
+  ],
+  "_oid_note": "Every object carries a syntactically valid oid so that a validateCdro rejection is attributable to the __proto__ rule alone, not to [E02]. Note validateCdro checks the oid by prefix only (see panel 4.8), so the value need not be the true OID of the object."
+}
