@@ -31,7 +31,13 @@ export type {
 export { canonicalize } from './canonicalize.js'
 
 // OID computation — value-level and full-CDRO content-core helpers.
-export { oidOf, oidOfCanonical, cdroOid, cdroContentCore, CDRO_ENVELOPE_FIELDS } from './oid.js'
+// OID computation. Two ids, deliberately distinct:
+//   cdroOid(obj)  ISSUANCE - hashes tenant_id, created_at_ms, created_by too,
+//                 so the same payload recorded twice gives two ids. Sign,
+//                 cite and link this one.
+//   bodyOid(obj)  PAYLOAD  - hashes `body` alone. Dedup, idempotency and
+//                 cache keys. Never an identity.
+export { oidOf, oidOfCanonical, cdroOid, bodyOid, cdroContentCore, CDRO_ENVELOPE_FIELDS } from './oid.js'
 
 // Hybrid Ed25519 + ML-DSA-65 signature verification (LEGACY bare-bytes path).
 export {

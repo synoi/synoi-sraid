@@ -130,7 +130,14 @@ console.log(v)                             // { valid: true, reasons: [] }
 canonicalize(value: unknown): string
 
 // CDRO identity — hash the content core. THIS is an object's OID.
+// ISSUANCE-addressed: tenant_id, created_at_ms and created_by are inside the
+// hash, so the same payload recorded twice gives two different OIDs.
 cdroOid(cdro: unknown): string
+
+// Payload id — hash `body` alone. Invariant across actor, time and tenant.
+// For dedup, idempotency and cache keys. NOT an identity: never sign, cite
+// or link this one.
+bodyOid(cdro: unknown): string
 cdroContentCore(cdro: unknown): Record<string, unknown>
 CDRO_ENVELOPE_FIELDS: readonly string[]   // the six stripped fields
 

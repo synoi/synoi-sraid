@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-09-07)
 
 ### SECURITY: OID collision via `__proto__` (fixed)
 
@@ -61,6 +61,52 @@ normatively.
 Vectors: `test/vectors/proto-pollution.json`, stored as raw JSON text so the
 cases lift into synoi-conformance unchanged. 16 assertions; 9 failed before the
 fix.
+
+### `bodyOid(cdro)` - the payload id
+
+Additive. One new function on each entry, no wire change, no format change, no
+change to any existing id or signature.
+
+`cdroOid` is ISSUANCE-addressed. Its input keeps `tenant_id`, `created_at_ms`
+and `created_by`, so the same payload recorded twice - a millisecond apart, or
+by two tenants - yields two unrelated OIDs:
+
+    same body, t=1000       sha256:0fbe669f...
+    same body, t=1001       sha256:b9bcccf7...
+    same body, other tenant sha256:9f535fc0...
+
+That is correct for a receipt: a CDRO attests that THIS actor recorded THIS
+content at THIS time, and two such acts are two different events. But it means
+`cdroOid` cannot answer "have I seen this payload before?" - not slowly, at
+all. Dedup, idempotency keys, replay detection, cache keys and "is this the
+same record that tenant already sent us" had no id to key on.
+
+`bodyOid` is the complement: `oidOf` over `body` alone, invariant across the
+actor, the timestamp and the tenant.
+
+    cdroOid(obj)   this issuance - identity of the recording act
+    bodyOid(obj)   this payload  - identity of the content recorded
+
+Use `bodyOid` for dedup and cache keys. Use `cdroOid` for anything signed,
+cited or linked. Never substitute one for the other: `bodyOid` deliberately
+hashes nothing but the body, which is what makes it useful and what makes it
+wrong as an identity.
+
+DERIVED, NOT STORED. This is a function over an object you already hold, not a
+new envelope field. A stored `body_oid` would be a second assertion that could
+disagree with the body beside it, and redundant data inside a signed envelope
+is a liability. Computing it costs one canonicalization and cannot lie. That
+also makes this release non-breaking: no existing object changes, and nothing
+needs re-signing.
+
+LIMIT, stated rather than papered over: this needs the body. An object whose
+body is absent or encrypted cannot be payload-addressed by a holder who cannot
+read it. That case wants a signed field, not a derivation, and is deliberately
+not solved here.
+
+Available on both entries - `bodyOid` (sync) from the node entry, `bodyOid`
+(async, WebCrypto) from `./verify-browser`, byte-identical for the same input
+and pinned by a parity assertion in `test/body-oid.test.ts`.
 
 ## 0.4.0 (2026-09-04)
 
@@ -159,7 +205,7 @@ stamped `oid` was not its identity, and reported `{ ok: true, errors: [] }`.
   `canonicalize(body)` error. Both now point at `cdroContentCore` / `cdroOid`. Comments only; no
   type or runtime change.
 - `src/lineage.ts`: the `lineageLinks` dedup key used a RAW U+0000 byte as its separator,
-  written literally into the source rather than as the ` ` escape. That single byte made
+  written literally into the source rather than as the `backslash-u-0000` escape. That single byte made
   the file `data` rather than text, so git treated it as binary (no reviewable diffs) and
   grep/ripgrep skipped it entirely - the file was invisible to every grep-based review of this
   repo, and it ships in `src/` to npm. Replaced with the escape. The emitted JS still contains

@@ -1,3 +1,6 @@
 
 # RFC 8785 conformance vectors are byte-exact; never convert line endings.
 test/vectors/rfc8785/** -text
+*.md text eol=lf
+*.json text eol=lf
+*.ts text eol=lf
