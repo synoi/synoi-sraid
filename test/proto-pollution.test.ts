@@ -1,11 +1,18 @@
 /**
  * test/proto-pollution.test.ts — the __proto__ OID collision.
  *
- * WRITTEN BEFORE THE FIX. This file is EXPECTED TO FAIL against <=0.4.0. Its
- * job is to state the defect executably, so the fix has an oracle and so a
- * regression cannot pass silently. Panel recommendation 2: no vector, no claim.
+ * Written BEFORE the fix (it failed 9 assertions against <=0.4.0) and now
+ * passing. It states the defect executably so a regression cannot pass
+ * silently. Panel recommendation 2: no vector, no claim.
  *
- * The defect: internal/content-core.ts builds the core with plain assignment
+ * THE RULE: an own `__proto__` member is REJECTED. `canonicalize` and
+ * `validateCdro` ([E17]) both refuse it, so a polluted object has no canonical
+ * form and therefore no OID to collide with. `cdroContentCore` additionally
+ * builds via `Object.fromEntries`, so a caller who never validates still
+ * cannot be handed a prototype-polluted object. Shallow by design: see the
+ * note in canonicalize.ts, and vector P-04.
+ *
+ * The defect it fixes: internal/content-core.ts built the core with assignment
  * (`core[k] = v`). For `k === '__proto__'` that invokes the prototype setter
  * instead of creating an own property, so the member is dropped. `canonicalize`
  * uses `Object.keys`, which DOES return an own `__proto__` (which is exactly
@@ -42,13 +49,28 @@ function ok(label: string, cond: boolean, detail = ''): void {
   }
 }
 
+/**
+ * OID of an object, or the sentinel REJECTED if the library refuses to
+ * canonicalize it. Under the REJECT rule a polluted object has no canonical
+ * form at all, which satisfies "must not collide" more strongly than a merely
+ * different hash would: there is nothing to collide with.
+ */
+const REJECTED = Symbol('rejected')
+function oidOrRejected(o: unknown): string | symbol {
+  try {
+    return cdroOid(o)
+  } catch {
+    return REJECTED
+  }
+}
+
 /** Does the object carry `__proto__` as its OWN member? */
 function hasOwnProto(o: unknown): boolean {
   return typeof o === 'object' && o !== null && Object.keys(o as object).includes('__proto__')
 }
 
 const clean = JSON.parse(V.clean_object_json)
-const cleanOid = cdroOid(clean)
+const cleanOid = cdroOid(clean) // the clean object must always canonicalize
 const byId = new Map<string, unknown>()
 for (const c of V.cases) byId.set(c.id, JSON.parse(c.object_json))
 
@@ -57,29 +79,40 @@ for (const c of V.cases) {
   const e = c.expect
 
   if (e.must_not_collide_with_clean) {
+    const got = oidOrRejected(obj)
     ok(
       `${c.id} ${c.name}`,
-      cdroOid(obj) !== cleanOid,
+      got !== cleanOid,
       `both are ${cleanOid}`,
     )
   }
 
   if (e.must_not_collide_with_case) {
     const other = byId.get(e.must_not_collide_with_case)!
+    const a = oidOrRejected(obj)
+    const b = oidOrRejected(other)
+    // Two REJECTED objects have no OID, so they cannot collide.
     ok(
       `${c.id} must not collide with ${e.must_not_collide_with_case}`,
-      cdroOid(obj) !== cdroOid(other),
-      `both are ${cdroOid(obj)}`,
+      a === REJECTED || b === REJECTED || a !== b,
+      `both are ${String(a)}`,
     )
   }
 
   if (e.projections_must_agree) {
-    // canonicalize sees the member; cdroContentCore must not silently drop it.
-    const inCanonical = canonicalize(obj).includes('__proto__')
+    // Either BOTH projections reject it, or both see the member. What must
+    // never happen again is one dropping it while the other hashes it.
+    let canonicalRejected = false
+    let inCanonical = false
+    try {
+      inCanonical = canonicalize(obj).includes('__proto__')
+    } catch {
+      canonicalRejected = true
+    }
     const inCore = hasOwnProto(cdroContentCore(obj))
     ok(
       `${c.id} canonicalize and cdroContentCore agree on __proto__`,
-      inCanonical === inCore,
+      canonicalRejected || inCanonical === inCore,
       `canonicalize=${inCanonical} core=${inCore}`,
     )
   }
@@ -95,10 +128,17 @@ for (const c of V.cases) {
 
   if (e.binding_must_reject) {
     // The check every production consumer performs before trusting an object.
+    // A throw is the strongest possible rejection.
     const payload = canonicalize(cdroContentCore(clean))
+    let bindingRejects: boolean
+    try {
+      bindingRejects = payload !== canonicalize(cdroContentCore(obj))
+    } catch {
+      bindingRejects = true
+    }
     ok(
       `${c.id} binding check rejects the polluted object`,
-      payload !== canonicalize(cdroContentCore(obj)),
+      bindingRejects,
       'polluted object produced the clean payload',
     )
   }

@@ -79,10 +79,29 @@ export function cdroContentCore(cdro: unknown): Record<string, unknown> {
   if (cdro === null || typeof cdro !== 'object' || Array.isArray(cdro)) {
     throw new TypeError('cdroContentCore: argument must be a CDRO object')
   }
-  const core: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(cdro as Record<string, unknown>)) {
-    if (CDRO_ENVELOPE_FIELD_SET.has(k)) continue
-    core[k] = v
-  }
-  return core
+  // Object.fromEntries, NOT plain assignment into an object literal.
+  //
+  // `core[k] = v` invokes the prototype SETTER when k is "__proto__", so the
+  // member was silently dropped from the core AND the accumulator's prototype
+  // became attacker-controlled. `canonicalize` walks Object.keys, which DOES
+  // return an own "__proto__" (exactly what JSON.parse produces), so the two
+  // projections in this one library disagreed: two objects with different
+  // content produced one OID, and the binding check
+  // `att.payload === canonicalize(cdroContentCore(x))` accepted a polluted
+  // object because BOTH sides dropped the member identically.
+  //
+  // Object.fromEntries uses CreateDataProperty, which DEFINES an own property
+  // rather than invoking a setter, so "__proto__" round-trips as ordinary data
+  // and the returned object is never prototype-polluted.
+  // Vectors: test/vectors/proto-pollution.json.
+  //
+  // This is defence in depth, not the primary control: `canonicalize` and
+  // `validateCdro` REJECT an own "__proto__" outright. This function stays
+  // total, so a caller who never validates still cannot be handed a polluted
+  // object.
+  return Object.fromEntries(
+    Object.entries(cdro as Record<string, unknown>).filter(
+      ([k]) => !CDRO_ENVELOPE_FIELD_SET.has(k),
+    ),
+  )
 }

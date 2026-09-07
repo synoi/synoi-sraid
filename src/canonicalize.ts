@@ -150,6 +150,38 @@ export function canonicalize(value: unknown): string {
   }
 
   const obj = value as Record<string, unknown>
+
+  // REJECT an own "__proto__" member (reject-loud, like the cases above).
+  //
+  // JSON.parse creates "__proto__" as an OWN property, but plain assignment to
+  // it invokes the prototype setter instead. That asymmetry made two
+  // projections in this library disagree and produced an OID COLLISION: two
+  // objects with different content hashed identically, and the binding check
+  // accepted the polluted one. Vectors: test/vectors/proto-pollution.json.
+  //
+  // The rule is REJECT, not HASH. Hashing it would also close the collision
+  // and would match what non-JS SDKs do naturally, but it leaves a member
+  // inside signed bytes that much of the JS ecosystem mishandles — any
+  // consumer merging a parsed CDRO is a pollution sink. Reject is the only
+  // rule that cannot be implemented inconsistently across languages.
+  //
+  // SHALLOW, deliberately. The collision is structurally top-level: the
+  // content-core projection iterates only the envelope's own keys, and a
+  // nested "__proto__" inside `body` does NOT collide (canonicalize serialises
+  // body as a value, so the member survives — vector P-04). `body` is
+  // application-defined content per SPEC section 7, so recursively policing
+  // its keys would be this layer legislating over application data and would
+  // cost a full walk on every canonicalize. A consumer merging untrusted
+  // parsed JSON should parse with a null prototype; that is their control.
+  if (Object.prototype.hasOwnProperty.call(obj, '__proto__')) {
+    throw new TypeError(
+      'canonicalize: object carries an own "__proto__" member, which is not a ' +
+        'legal CDRO content key — JSON.parse preserves it but property ' +
+        'assignment drops it, so it cannot be hashed consistently; remove it ' +
+        'before canonicalizing',
+    )
+  }
+
   // Object properties whose value is `undefined` are OMITTED (matches
   // JSON.stringify and the JSON data model). This is the one omission we honor;
   // an undefined ARRAY element throws (above), because dropping it would shift

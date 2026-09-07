@@ -49,6 +49,21 @@ changes the OID.
 
 ## 2. The content-core projection (`cdroContentCore`)
 
+**Rejected member: `__proto__`.** An object carrying an own `__proto__` member
+is NOT a valid CDRO and MUST be rejected by both the canonicalizer and the
+validator, rather than hashed or stripped. `JSON.parse` creates `__proto__` as
+an own property, but property assignment to it invokes the prototype setter, so
+a projection built by assignment silently drops it while a canonicalizer walking
+`Object.keys` still sees it. Any implementation that hashes it in one place and
+drops it in the other produces an OID COLLISION: two objects with different
+content hash identically, and a binding check comparing
+`canonicalize(cdroContentCore(x))` accepts the polluted object because both
+sides drop the member. This is normative for every language binding; an SDK that
+treats `__proto__` as an ordinary key will disagree with a conformant one.
+The rule is SHALLOW — it applies to the members the projection iterates, not
+recursively into `body`, which is application-defined content (SPEC §7).
+Conformance vectors: `test/vectors/proto-pollution.json`.
+
 `cdroContentCore(object)` returns `object` with EXACTLY the following six
 top-level fields REMOVED, and every other field KEPT unchanged:
 

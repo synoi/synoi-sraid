@@ -66,6 +66,7 @@ export interface ValidationResult {
  *   [E14] links, if present, not an array of well-formed typed edges
  *   [E15] attestation, if present, malformed DSSE envelope
  *   [E16] sensitivity, if present, not a known opaque tier (s0..s4)
+ *   [E17] carries an own "__proto__" member (OID-collision shape; rejected)
  */
 export function validateCdro(x: unknown): ValidationResult {
   const errors: string[] = []
@@ -74,6 +75,22 @@ export function validateCdro(x: unknown): ValidationResult {
     return { ok: false, errors: ['[E01] CDRO must be a plain object'] }
   }
   const o = x as Record<string, unknown>
+
+  // [E17] Checked FIRST and returned immediately: an own "__proto__" member is
+  // the OID-collision shape (JSON.parse preserves it, property assignment drops
+  // it), so the object is not canonicalizable and every check below would be
+  // reasoning about bytes that cannot be hashed consistently. Shallow by
+  // design — see the note in canonicalize.ts. Vectors:
+  // test/vectors/proto-pollution.json.
+  if (Object.prototype.hasOwnProperty.call(o, '__proto__')) {
+    return {
+      ok: false,
+      errors: [
+        '[E17] CDRO must not carry an own "__proto__" member (it cannot be ' +
+          'hashed consistently and is the OID-collision shape)',
+      ],
+    }
+  }
 
   if (typeof o['oid'] !== 'string' || (o['oid'] as string).length === 0) {
     errors.push('[E02] oid must be a non-empty string')
