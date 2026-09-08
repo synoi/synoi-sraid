@@ -24,6 +24,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./content-core": {
+      "types": "./dist/content-core.d.ts",
+      "default": "./dist/content-core.js"
+    },
     "./canonicalize": {
       "types": "./dist/canonicalize.d.ts",
       "default": "./dist/canonicalize.js"
@@ -40,6 +44,9 @@
     "*": {
       "canonicalize": [
         "dist/canonicalize.d.ts"
+      ],
+      "content-core": [
+        "dist/content-core.d.ts"
       ],
       "verify-browser": [
         "dist/verify-browser.d.ts"
