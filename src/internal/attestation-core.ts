@@ -120,3 +120,39 @@ export function findSig(
   }
   return undefined
 }
+
+/**
+ * ALL well-formed entries for an alg, in envelope order.
+ *
+ * `findSig` returns only the FIRST match, which made the signature list
+ * malleable: `signatures[]` is entirely outside the signed bytes (PAE covers
+ * `payloadType` and `payload` only), so anyone in the delivery or storage path
+ * could PREPEND `{alg:'ed25519', sig:<zeros>}` and turn a cryptographically
+ * valid receipt into an invalid one, with no evidence of tampering and without
+ * changing the object's OID or any binding check. An issuer could do it to its
+ * own receipt and later claim it never verified.
+ *
+ * A verifier that tries every candidate and accepts if ANY verifies makes
+ * extra entries INERT rather than destructive. This weakens nothing: an
+ * attacker still cannot produce a signature that verifies under a key they do
+ * not hold, and DSSE is itself an OR-of-signatures envelope. SynOI's AND
+ * policy is across ALGORITHMS — both `ed25519` and `ml-dsa-65` must verify —
+ * not across entries within an algorithm, and that is unchanged.
+ *
+ * NOT addressed here: `keyid` remains unauthenticated and rewritable. Binding
+ * it requires committing the ordered {alg, keyid} list into the signed bytes,
+ * which changes the wire format and is deliberately out of scope for a
+ * non-breaking release.
+ */
+export function findAllSigs(
+  sigs: readonly AttestationSignature[],
+  alg: string,
+): AttestationSignature[] {
+  const out: AttestationSignature[] = []
+  for (const s of sigs) {
+    if (s && typeof s === 'object' && s.alg === alg && typeof s.sig === 'string') {
+      out.push(s)
+    }
+  }
+  return out
+}

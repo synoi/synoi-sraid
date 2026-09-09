@@ -49,7 +49,7 @@ import { sha256HexPrefixed } from './internal/sha256-browser.js'
 import {
   ALG_ED25519,
   ALG_ML_DSA_65,
-  findSig,
+  findAllSigs,
   isWellFormedEnvelope,
   pae,
   type VerifyAttestationInput,
@@ -102,51 +102,64 @@ export async function verifyAttestation(
   // The signed bytes: PAE binds payloadType + payload together.
   const message = pae(env.payloadType, env.payload)
 
-  // Find the required hybrid pair. The AND policy: both must be present.
-  const edEntry = findSig(env.signatures, ALG_ED25519)
-  const mlEntry = findSig(env.signatures, ALG_ML_DSA_65)
+  // AND across ALGORITHMS, OR within one. Mirrors the node entry exactly; see
+  // findAllSigs for why taking only the first entry was a denial-of-service.
+  const edEntries = findAllSigs(env.signatures, ALG_ED25519)
+  const mlEntries = findAllSigs(env.signatures, ALG_ML_DSA_65)
 
-  if (!edEntry) reasons.push('missing-ed25519')
-  if (!mlEntry) reasons.push('missing-ml-dsa-65')
+  if (edEntries.length === 0) reasons.push('missing-ed25519')
+  if (mlEntries.length === 0) reasons.push('missing-ml-dsa-65')
 
   let edOk = false
   let mlOk = false
+  let edMalformed = 0
+  let mlMalformed = 0
 
-  if (edEntry) {
+  for (const entry of edEntries) {
     let edSig: Uint8Array | null = null
     try {
-      edSig = decodeBase64StrictBrowser(edEntry.sig)
+      edSig = decodeBase64StrictBrowser(entry.sig)
     } catch {
-      reasons.push('ed25519-malformed')
+      edMalformed++
+      continue
     }
-    if (edSig) {
-      try {
-        edOk = await verifyEd25519Browser(edSig, message, input.ed25519_pub)
-      } catch {
-        edOk = false
+    try {
+      if (await verifyEd25519Browser(edSig, message, input.ed25519_pub)) {
+        edOk = true
+        break
       }
-      if (!edOk) reasons.push('ed25519-invalid')
+    } catch {
+      // non-verifying candidate; keep scanning
     }
   }
+  if (edEntries.length > 0 && !edOk) {
+    if (edMalformed === edEntries.length) reasons.push('ed25519-malformed')
+    else reasons.push('ed25519-invalid')
+  }
 
-  if (mlEntry) {
+  for (const entry of mlEntries) {
     let mlSig: Uint8Array | null = null
     try {
-      mlSig = decodeBase64StrictBrowser(mlEntry.sig)
+      mlSig = decodeBase64StrictBrowser(entry.sig)
     } catch {
-      reasons.push('ml-dsa-malformed')
+      mlMalformed++
+      continue
     }
-    if (mlSig) {
-      try {
-        mlOk = verifyMlDsa65Browser(mlSig, message, input.ml_dsa_pub)
-      } catch {
-        mlOk = false
+    try {
+      if (verifyMlDsa65Browser(mlSig, message, input.ml_dsa_pub)) {
+        mlOk = true
+        break
       }
-      if (!mlOk) reasons.push('ml-dsa-invalid')
+    } catch {
+      // non-verifying candidate; keep scanning
     }
   }
+  if (mlEntries.length > 0 && !mlOk) {
+    if (mlMalformed === mlEntries.length) reasons.push('ml-dsa-malformed')
+    else reasons.push('ml-dsa-invalid')
+  }
 
-  return { valid: edOk && mlOk && !!edEntry && !!mlEntry, reasons }
+  return { valid: edOk && mlOk, reasons }
 }
 
 // ── OID helpers (browser, ASYNC via WebCrypto SHA-256) ────────────────────────

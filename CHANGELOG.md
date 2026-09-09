@@ -1,6 +1,62 @@
 # Changelog
 
-## 0.5.0 (2026-09-07)
+## 0.5.0 (2026-09-09)
+
+### SECURITY: signature-list malleability (4.1, denial-of-service half)
+
+`signatures[]` is entirely outside the signed bytes - PAE covers `payloadType`
+and `payload` only - and the verifier took the FIRST entry matching an
+algorithm. Prepending `{alg:'ed25519', sig:<zeros>}` therefore turned a
+cryptographically valid receipt into an INVALID one, without changing the
+object's OID or failing any binding check.
+
+Two uses, both bad for a product selling settlement-grade non-repudiation: any
+party in the delivery or storage path silently destroys a counterparty's
+ability to verify a receipt they hold, with no evidence of tampering; and an
+issuer can do it to its own receipt and later claim it never verified.
+
+The verifier now tries EVERY entry for an algorithm and accepts if any
+verifies, so extra entries are inert rather than destructive. This weakens
+nothing: an attacker still cannot produce a signature that verifies under a key
+they do not hold, and DSSE is itself an OR-of-signatures envelope. The SynOI
+AND policy is across ALGORITHMS - both ed25519 and ml-dsa-65 must verify - and
+is unchanged, with explicit guards pinning that a single algorithm, all-bogus
+entries, and a signature over different bytes all still fail.
+
+NO signed bytes change. Both entries fixed identically.
+
+NOT fixed: `keyid` remains unauthenticated and rewritable (4.1b). Binding it
+requires committing the ordered {alg, keyid} list into the signed bytes, which
+changes the wire format and is out of scope for a non-breaking release.
+
+### SECURITY: base64 malleability (4.3)
+
+`internal/base64-validate.ts` checked alphabet, length modulo 4 and pad
+position, but not that the unused trailing bits of the final quantum are zero
+(RFC 4648 section 3.5). An Ed25519 signature is 64 bytes, so its encoding ends
+in `==` with FOUR free bits: 16 distinct `sig` strings decoded to the same
+signature and ALL SIXTEEN verified.
+
+That breaks uniqueness anywhere a SERIALIZED receipt is treated as the identity
+of a thing - transparency-log leaves, Merkle batch membership, dedup and
+idempotency keys. ML-DSA-65 at 3309 bytes is a multiple of 3, has no padding,
+and is unaffected.
+
+The old comment reasoned only about pad POSITION and concluded "no extra check
+needed". Position was never the hazard; the free bits were.
+
+### Strict OID validation (4.8)
+
+`validateCdro` checked `oid` and `prev` with `startsWith('sha256:')`, so the
+literal string `"sha256:"` passed, as did
+`sha256:ceremony-verify-placeholder` - which travelled an entire real
+sign-and-verify path undetected in the gateway's key-ceremony script. Both now
+use the full `CANONICAL_OID_RE` that `supersedes` already used. The regex is an
+allowlist and therefore fail-closed by construction.
+
+BEHAVIOUR CHANGE: an object carrying a non-canonical `oid` or `prev` is now
+rejected. That is the point, but it will surface placeholders that previously
+passed.
 
 ### SECURITY: OID collision via `__proto__` (fixed)
 

@@ -52,7 +52,7 @@ export interface ValidationResult {
  *
  *   [E01] not an object / null
  *   [E02] oid missing or not a non-empty string
- *   [E03] oid missing "sha256:" prefix
+ *   [E03] oid not a canonical OID (sha256:<64 lowercase hex>)
  *   [E04] type missing or not a non-empty string
  *   [E05] sraid_version not "2.0"
  *   [E06] tenant_id missing or not a non-empty string
@@ -62,7 +62,7 @@ export interface ValidationResult {
  *   [E10] supersedes, if present, not a canonical OID (sha256:<64 hex>)
  *   [E11] signature, if present, malformed envelope
  *   [E12] authority, if present, malformed block
- *   [E13] prev, if present, not a non-empty "sha256:" string
+ *   [E13] prev, if present, not a canonical OID (sha256:<64 hex>)
  *   [E14] links, if present, not an array of well-formed typed edges
  *   [E15] attestation, if present, malformed DSSE envelope
  *   [E16] sensitivity, if present, not a known opaque tier (s0..s4)
@@ -92,10 +92,16 @@ export function validateCdro(x: unknown): ValidationResult {
     }
   }
 
+  // STRICT. `oid` and `prev` are validated with the full CANONICAL_OID_RE, not
+  // a `startsWith('sha256:')` prefix test. Prefix-only accepted the literal
+  // string "sha256:" and anything after it, so a placeholder such as
+  // 'sha256:ceremony-verify-placeholder' travelled an entire sign-and-verify
+  // path undetected. `supersedes` already used the strict regex; these two did
+  // not. The regex is an allowlist and therefore fail-closed by construction.
   if (typeof o['oid'] !== 'string' || (o['oid'] as string).length === 0) {
     errors.push('[E02] oid must be a non-empty string')
-  } else if (!(o['oid'] as string).startsWith('sha256:')) {
-    errors.push('[E03] oid must start with "sha256:"')
+  } else if (!isCanonicalOid(o['oid'])) {
+    errors.push('[E03] oid must be a canonical OID (sha256:<64 lowercase hex>)')
   }
 
   if (typeof o['type'] !== 'string' || (o['type'] as string).length === 0) {
@@ -132,8 +138,8 @@ export function validateCdro(x: unknown): ValidationResult {
   if (o['prev'] !== undefined && o['prev'] !== null) {
     if (typeof o['prev'] !== 'string' || (o['prev'] as string).length === 0) {
       errors.push('[E13] prev, if present, must be a non-empty string')
-    } else if (!(o['prev'] as string).startsWith('sha256:')) {
-      errors.push('[E13] prev must start with "sha256:"')
+    } else if (!isCanonicalOid(o['prev'])) {
+      errors.push('[E13] prev must be a canonical OID (sha256:<64 lowercase hex>)')
     }
   }
 
