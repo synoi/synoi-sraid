@@ -54,10 +54,11 @@ jobs cover them.
   reported SKIP ("blocked: install failed"), not run against a missing `node_modules`. If you
   leave `install` out with `--only`/`--skip`, the first of those jobs runs `npm ci` as setup and
   says so in its notes. The script exits nonzero if any job failed.
-- **Node version.** The workflows pin Node 20 (`actions/setup-node`); the script uses whatever
-  `node` is on `PATH`, records it, and prints and reports a warning when its major differs from
-  the workflows'. Note that this repo's own `.nvmrc` (22) and `engines.node` (`>=22`) already
-  disagree with the workflows' 20; every report shows all three.
+- **Node version.** The workflows pin Node 22 (`actions/setup-node`), matching this repo's
+  `.nvmrc` (22) and `engines.node` (`>=22`). The script uses whatever `node` is on `PATH`,
+  records it, and prints and reports a warning when its major differs from the workflows' (it
+  reads `node-version:` from the workflow files, so it expects 22 without hardcoding it). Every
+  report shows all three.
 - **The copies are not deleted** by the script (they hold `node_modules`, and this workspace does
   not let automation recursive-delete). Clear old ones by hand.
 
