@@ -14,7 +14,7 @@
 #
 #   bash scripts/local-ci.sh                       every job
 #   bash scripts/local-ci.sh --only typecheck,test just those jobs
-#   bash scripts/local-ci.sh --skip pack           everything but those
+#   bash scripts/local-ci.sh --skip publish-check  everything but those
 #   bash scripts/local-ci.sh --dir ../other-wt     check another checkout with this copy of the script
 #   bash scripts/local-ci.sh --list                list jobs and what each mirrors
 #
@@ -27,7 +27,7 @@
 set -uo pipefail
 
 # ── job table ──────────────────────────────────────────────────────────────────────────────────
-ALL_JOBS=(install typecheck test build pack version-tag)
+ALL_JOBS=(install typecheck test build publish-check version-tag)
 
 job_mirrors() {
   case "$1" in
@@ -35,7 +35,7 @@ job_mirrors() {
     typecheck) echo "ci.yml test > Typecheck (npm run typecheck)" ;;
     test) echo "ci.yml test > Test (npm test)" ;;
     build) echo "ci.yml test > Build (npm run build)" ;;
-    pack) echo "publish-npm.yml publish > Install + Build, then npm pack --dry-run contents (never publishes)" ;;
+    publish-check) echo "publish-npm.yml publish > Install + Build, then npm pack --dry-run contents (never publishes)" ;;
     version-tag) echo "publish-npm.yml publish > Check version matches tag" ;;
   esac
 }
@@ -73,7 +73,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$LIST" = 1 ]; then
-  for j in "${ALL_JOBS[@]}"; do printf '%-12s %s\n' "$j" "$(job_mirrors "$j")"; done
+  for j in "${ALL_JOBS[@]}"; do printf '%-14s %s\n' "$j" "$(job_mirrors "$j")"; done
   exit 0
 fi
 
@@ -216,14 +216,14 @@ job_build() {
 # publish-npm.yml's steps before "Publish to npm", in its own copy. Its Typecheck and Test steps
 # are the same commands as ci.yml's and are covered by those jobs; this one installs, builds, and
 # lists what `npm publish` would upload, then checks that list against package.json.
-job_pack() {
+job_publish_check() {
   step "npm ci"; npm ci
   step "npm run build"; npm run build
   step "npm pack --dry-run --json (nothing is written or uploaded)"
-  npm pack --dry-run --json >"$JOB_DIR/pack.json"
-  cp "$JOB_DIR/pack.json" "$LOG_DIR/pack-dry-run.json"
+  npm pack --dry-run --json >"$JOB_DIR/npm-pack.json"
+  cp "$JOB_DIR/npm-pack.json" "$LOG_DIR/pack-dry-run.json"
   step "check the would-be tarball's contents against package.json"
-  node - "$JOB_DIR/pack.json" "$JOB_DIR/meta" <<'NODE'
+  node - "$JOB_DIR/npm-pack.json" "$JOB_DIR/meta" <<'NODE'
 const fs = require('fs')
 const [packFile, metaFile] = process.argv.slice(2)
 const pack = JSON.parse(fs.readFileSync(packFile, 'utf8'))[0]
@@ -257,10 +257,10 @@ for (const p of [...files].sort()) console.log(`  ${p}`)
 fs.appendFileSync(metaFile, `would publish ${pack.id}: ${pack.entryCount} files, ${pack.size} bytes packed\n`)
 if (problems.length) {
   for (const p of problems) console.log(`PROBLEM: ${p}`)
-  fs.appendFileSync(metaFile, `pack problems: ${problems.length}\n`)
+  fs.appendFileSync(metaFile, `tarball problems: ${problems.length}\n`)
   process.exit(1)
 }
-console.log('pack contents match package.json')
+console.log('tarball contents match package.json')
 NODE
 }
 
@@ -310,7 +310,7 @@ for j in ${SELECTED[@]+"${SELECTED[@]}"}; do
   : >"$JOB_DIR/meta"
   log="$LOG_DIR/$j.log"
   : >"$log"
-  printf 'local-ci: %-12s ... ' "$j"
+  printf 'local-ci: %-14s ... ' "$j"
   start=$SECONDS
   rc=0
   blocked=""
@@ -332,7 +332,7 @@ for j in ${SELECTED[@]+"${SELECTED[@]}"}; do
     JOB_REPO="$CI_COPY"
   else
     JOB_REPO="$JOB_DIR/repo"
-    if [ "$j" = pack ]; then
+    if [ "$j" = publish-check ]; then
       echo "::: copy tree to $JOB_REPO (publish-npm.yml gets its own runner)" >>"$log"
       copy_tree "$TARGET" "$JOB_REPO" >>"$log" 2>&1 || { echo "copying the tree failed" >>"$log"; rc=1; }
     else

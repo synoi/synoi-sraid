@@ -9,7 +9,7 @@ checks; this script mirrors them, it does not replace their content.
 ```bash
 npm run ci:local                                 # or: bash scripts/local-ci.sh
 bash scripts/local-ci.sh --only typecheck,test   # some jobs
-bash scripts/local-ci.sh --skip pack             # all but some
+bash scripts/local-ci.sh --skip publish-check    # all but some
 bash scripts/local-ci.sh --dir ../other-wt       # check another checkout or worktree
 bash scripts/local-ci.sh --list                  # jobs and what each mirrors
 ```
@@ -34,7 +34,7 @@ Two Windows notes:
 | `typecheck` | `ci.yml` `test` > Typecheck: `npm run typecheck` |
 | `test` | `ci.yml` `test` > Test: `npm test` (the report carries `test/run-all.ts`'s file count, the summed assertion counts, and every `SKIP` line) |
 | `build` | `ci.yml` `test` > Build: `npm run build` |
-| `pack` | `publish-npm.yml` `publish` up to, not including, "Publish to npm": `npm ci`, `npm run build`, then `npm pack --dry-run --json`, with the would-be tarball checked against `package.json` (every `main` / `types` / `exports` / `typesVersions` target present, every top-level `files` entry present, no `test/`, `bench/`, `.github/`, `node_modules/`, `.env*`, `*.pem`, `*.tgz`) |
+| `publish-check` | `publish-npm.yml` `publish` up to, not including, "Publish to npm": `npm ci`, `npm run build`, then `npm pack --dry-run --json`, with the would-be tarball checked against `package.json` (every `main` / `types` / `exports` / `typesVersions` target present, every top-level `files` entry present, no `test/`, `bench/`, `.github/`, `node_modules/`, `.env*`, `*.pem`, `*.tgz`) |
 | `version-tag` | `publish-npm.yml` > Check version matches tag. There is no dispatched tag locally, so the `v*` tags on HEAD stand in: PASS if one is `v<package.json version>`, FAIL if HEAD has only other `v*` tags, SKIP if it has none (an ordinary branch commit) |
 
 **`npm publish` is never run**, and neither is the workflow's Summary step. `publish-npm.yml`'s
@@ -46,7 +46,7 @@ jobs cover them.
 - **Fresh copies of the tree** under `$LOCAL_CI_WORKDIR` (default `${TMPDIR:-/tmp}/sraid-local-ci`),
   holding what a checkout would: tracked files plus untracked, non-ignored files. `install`,
   `typecheck`, `test` and `build` share one copy, in that order, because they are the steps of
-  `ci.yml`'s single `test` job; `pack` gets its own copy and its own `npm ci`, because
+  `ci.yml`'s single `test` job; `publish-check` gets its own copy and its own `npm ci`, because
   `publish-npm.yml` runs on its own runner. Your checkout's `node_modules/` and `dist/` are never
   used or touched.
 - **A failing job does not stop the next one**, unlike a failing step on Actions. The one
@@ -65,7 +65,7 @@ jobs cover them.
 
 Every run writes `ci-reports/local-ci-<UTC date>-<short sha>.md` (with a `-2`, `-3`, ... suffix if
 that run id is taken in the report dir or the work dir) plus one log per job in a matching
-directory, and `pack-dry-run.json` from the `pack` job. `ci-reports/` is gitignored. The report
+directory, and `pack-dry-run.json` (npm's `--dry-run --json` output) from the `publish-check` job. `ci-reports/` is gitignored. The report
 holds the commit SHA, branch, whether the tree was dirty (and the `git status` lines if so), host
 OS, Node and npm versions, the Node version the workflows use, and per job: PASS / FAIL / SKIP,
 duration, notes, and log path. A **counted-skips** line states how many jobs were skipped and how
