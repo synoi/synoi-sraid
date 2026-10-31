@@ -65,7 +65,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "npx tsx test/run-all.ts",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run build && npm test",
+    "ci:local": "bash scripts/local-ci.sh"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",
