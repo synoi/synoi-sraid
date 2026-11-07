@@ -14,7 +14,10 @@
  *     a thrown TypeError BEFORE hashing. Forbidding floats everywhere matches
  *     GAP-TS / GAP-Python and removes the hardest RFC 8785 cross-language
  *     serialization trap from the signed byte string; the product only emits
- *     integer minor-unit money and integer ms timestamps. Legal integers use
+ *     integer minor-unit money and integer ms timestamps. Integers must also
+ *     be SAFE, within [-(2^53 - 1), 2^53 - 1]; larger ones are REJECTED
+ *     because JS and arbitrary-precision languages would hash them
+ *     differently. Legal integers use
  *     the ECMAScript number-to-string serialization of RFC 8785 §3.2.2.3
  *     (equivalent to JS's default toString for integer values).
  *   - Arrays preserve element order; elements are recursively canonicalized.
@@ -46,6 +49,8 @@
  *   - NaN / Infinity / -Infinity (RFC 8785 forbids non-finite numbers).
  *   - non-integer numbers / floats (ADR_019 forbids them; use integer minor
  *     units). e.g. 1.5, 0.1, 2e-3 all throw.
+ *   - integers outside [-(2^53 - 1), 2^53 - 1], e.g. 2 ** 53 and 1e21 throw.
+ *     Encode such values as decimal strings.
  *   - undefined / function / symbol / bigint anywhere they appear as a value,
  *     including as an ARRAY element (previously these produced invalid JSON
  *     like "[1,,2]").
@@ -93,6 +98,21 @@ export function canonicalize(value: unknown): string {
       throw new TypeError(
         `canonicalize: non-integer numbers are forbidden (ADR_019); received ${String(value)}. ` +
           'Represent fractional quantities as integer minor units (e.g. cents) before canonicalizing.',
+      )
+    }
+    // Integers outside the IEEE-754 exactly-representable range
+    // [-(2^53 - 1), 2^53 - 1] are REJECTED. Above it, a JS parser has already
+    // rounded the value (9007199254740993 parses as 9007199254740992) while an
+    // arbitrary-precision implementation (Python, Go big ints) keeps every
+    // digit, so the two would hash different bytes for the same document and
+    // silently disagree on the OID. Very large integers also serialize in
+    // exponent form here (1e21 -> "1e+21") but as plain digits elsewhere.
+    // Rejecting is the only rule every language can implement identically.
+    if (!Number.isSafeInteger(value as number)) {
+      throw new TypeError(
+        `canonicalize: integer ${String(value)} is outside the safe range ` +
+          '[-(2^53 - 1), 2^53 - 1] and cannot be hashed identically across ' +
+          'implementations; encode it as a decimal string instead.',
       )
     }
     return JSON.stringify(value)

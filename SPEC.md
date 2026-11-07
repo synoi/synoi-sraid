@@ -42,28 +42,28 @@ The six detached envelope members `oid`, `signature`, `ml_dsa_signature`, `signa
 
 ## 3. Canonical form
 
-SRAID v1.0 defines one normative canonical object format, identified as **`sraid/json`** (strict RFC 8785 JCS):
+SRAID 2.0 defines one normative canonical object format, identified as **`sraid/json`**: RFC 8785 JCS restricted to an integer-only number domain (see **Numbers** below, and Appendix A, DD-2):
 
-1. Take the value to canonicalize. For OID derivation this is the CDRO with its `oid` and `signature` members removed (Section 4); for signing it is the same value the signer hashed.
+1. Take the value to canonicalize. For OID derivation this is the CDRO with its six detached envelope members removed (Section 4); for signing it is the same value the signer hashed.
 2. Serialize it as JSON deterministically per RFC 8785:
    - **Objects** emit their keys sorted in ascending lexicographic (UTF-16 code-unit) order. Each member is `key:value` with no whitespace; members are joined by a bare `,`.
    - Object members whose value is `undefined` are OMITTED entirely (an absent member and a member set to `undefined` canonicalize identically).
    - **Arrays** preserve their element order; each element is recursively canonicalized and joined by a bare `,`.
    - **Strings** are emitted with standard JSON string escaping.
-   - **Numbers** use the ECMAScript number-to-string serialization defined by RFC 8785 §3.2.2.3. An implementation MUST reject (throw an error for) any number value that is `NaN`, positive `Infinity`, or negative `Infinity` — these values are not representable in JSON and MUST NOT be silently coerced to `null` or any other value. The value `-0` MUST serialize as `"0"` (the positive-zero form) per RFC 8785 §3.2.2.3.
+   - **Numbers** MUST be integers in the safe range from -(2^53 - 1) to 2^53 - 1 inclusive (-9007199254740991 to 9007199254740991). Before hashing, an implementation MUST reject (throw an error for) any number that is `NaN`, positive or negative `Infinity`, not an integer (for example `1.5`, `0.1`, `2e-3`), or an integer outside that range (for example `9007199254740992` or `1e21`). A rejected number MUST NOT be coerced to `null`, rounded, truncated, or otherwise changed. A legal number serializes as plain decimal digits, with a leading `-` if negative and no fraction, exponent, or leading zeros; this is exactly what RFC 8785 §3.2.2.3 produces for these values. `-0` serializes as `0`. Fractional quantities are carried as integer minor units (for example cents), and larger integers as decimal strings.
    - `null`, `true`, and `false` are emitted literally.
    - No insignificant whitespace appears anywhere; the only separators are bare `,` and `:`.
 3. Encode the result as UTF-8. The resulting byte string is the object's **canonical bytes**.
 
 The precise canonicalization is pinned by the test vectors in `@synoi/conformance` (Section 8); an implementation is canonical-correct if and only if it reproduces those vectors.
 
-A binary profile, **`sraid/cbor`** (CBOR per RFC 8949 with COSE per RFC 9052 for signatures), is reserved for a future version. An implementation MUST declare which profile it produces; a v1.0 producer MUST produce `sraid/json`.
+A binary profile, **`sraid/cbor`** (CBOR per RFC 8949 with COSE per RFC 9052 for signatures), is reserved for a future version. An implementation MUST declare which profile it produces; a 2.0 producer MUST produce `sraid/json`.
 
-**Serialization format decision (closed, 2026-06-27).** `sraid/json` is the one normative format for v1.0. The choice is settled for this version; it is not under deliberation. Rationale: (a) RFC 8785 JCS specifies a single, deterministic output with no schema dependency, which is required because `body` may be any JSON value (Section 2); (b) the conformance vectors (Section 8) already pin the byte-exact output, establishing a concrete interoperability floor; (c) JSON tooling is universally available across the implementation environments SRAID targets. `sraid/cbor` is explicitly deferred to a post-v1.0 additive binary profile. When introduced, it MUST yield the same OID-bearing content model as `sraid/json` (identical member set and semantics), not a replacement format. A `sraid/cbor` producer is therefore still bound by all CDRO structural rules in Section 2.
+**Serialization format decision (closed, 2026-06-27).** `sraid/json` is the one normative format for 2.0. The choice is settled for this version; it is not under deliberation. Rationale: (a) RFC 8785 JCS specifies a single, deterministic output with no schema dependency, which is required because `body` may be any JSON value (Section 2); (b) the conformance vectors (Section 8) already pin the byte-exact output, establishing a concrete interoperability floor; (c) JSON tooling is universally available across the implementation environments SRAID targets. `sraid/cbor` is explicitly deferred to a post-2.0 additive binary profile. When introduced, it MUST yield the same OID-bearing content model as `sraid/json` (identical member set and semantics), not a replacement format. A `sraid/cbor` producer is therefore still bound by all CDRO structural rules in Section 2.
 
 ## 4. The Object Identifier (OID)
 
-> The OID is the single normative identifier of SRAID v1.0.
+> The OID is the single normative identifier of SRAID 2.0.
 
 The OID is computed over the canonical bytes of the CDRO with its six detached envelope members `oid`, `signature`, `ml_dsa_signature`, `signature_key_id`, `signature_algorithm`, and `attestation` excluded from the input (so signing or re-signing never changes the OID):
 
@@ -83,11 +83,11 @@ SHA-256 provides approximately 128-bit pre-image resistance against a quantum ad
 Implementations MAY derive a short, fixed-size **routing prefix** from an object for type-partitioned placement or fast bucketing. A routing prefix begins with class/schema bytes followed by a prefix of the object's SHA-256.
 
 - A routing prefix MUST NOT be used as a security identity, nor for deduplication, supersession, or trust decisions; those use the full OID (Section 4). A routing-prefix collision is a placement event, resolved by comparing full OIDs.
-- The exact byte layout of the routing prefix is not fixed by SRAID v1.0 and is reserved as a separate, non-normative profile.
+- The exact byte layout of the routing prefix is not fixed by SRAID 2.0 and is reserved as a separate, non-normative profile.
 
 ## 6. Attestation (signatures)
 
-An object MAY carry a detached **attestation envelope** that authenticates its canonical bytes. SRAID v1.0 defines a **hybrid signature suite** combining a classical and a post-quantum algorithm, BOTH required:
+An object MAY carry a detached **attestation envelope** that authenticates its canonical bytes. SRAID 2.0 defines a **hybrid signature suite** combining a classical and a post-quantum algorithm, BOTH required:
 
 - **Ed25519** (RFC 8032), and
 - **ML-DSA-65** (FIPS 204).
@@ -123,7 +123,7 @@ For back-compat, an object MAY instead carry the legacy `signature` member with 
 
 ### 6.5 Binary profile
 
-The `sraid/cbor` binary profile (Section 3) reserves **COSE** (RFC 9052) as the CBOR-profile attestation form. It is reserved, not defined by SRAID v1.0.
+The `sraid/cbor` binary profile (Section 3) reserves **COSE** (RFC 9052) as the CBOR-profile attestation form. It is reserved, not defined by SRAID 2.0.
 
 ## 7. Envelope metadata privacy
 
@@ -133,13 +133,13 @@ Because those members are visible to anyone who can see the object, an implement
 
 ### 7.1 The sensitivity tier — coarse and opaque
 
-SRAID v1.0 defines an optional `sensitivity` member: a **coarse, opaque** tier drawn from the ordered, fixed ladder `"s0" < "s1" < "s2" < "s3" < "s4"` (lowest to highest). The tier is OPAQUE by construction. Because the envelope is a public surface, the member MUST NOT carry a literal content category (for example `"phi"`, `"health"`, or `"financial"`): such a label would leak the nature of an encrypted `body` to anyone who can see the object. The mapping from a real-world classification (PHI, PII, secret, …) to a tier is a higher-layer POLICY concern that is kept OFF the wire; the envelope only ever exposes the opaque level. An implementation MUST reject a `sensitivity` value that is not one of the five defined tiers.
+SRAID 2.0 defines an optional `sensitivity` member: a **coarse, opaque** tier drawn from the ordered, fixed ladder `"s0" < "s1" < "s2" < "s3" < "s4"` (lowest to highest). The tier is OPAQUE by construction. Because the envelope is a public surface, the member MUST NOT carry a literal content category (for example `"phi"`, `"health"`, or `"financial"`): such a label would leak the nature of an encrypted `body` to anyone who can see the object. The mapping from a real-world classification (PHI, PII, secret, …) to a tier is a higher-layer POLICY concern that is kept OFF the wire; the envelope only ever exposes the opaque level. An implementation MUST reject a `sensitivity` value that is not one of the five defined tiers.
 
 The member is part of the canonical content (Section 4), so it is hashed into the OID. A producer therefore cannot strip it or downgrade it without changing the OID and invalidating any signature.
 
 **Monotone carry-forward (`max`).** Sensitivity propagates monotonically through derivation. When an object is derived from one or more sources (for example a consolidated or summarized memory record built from raw records, linked by `consolidated_from`/`derived_from`), its tier MUST be at least the **maximum** tier among those sources. In other words a summary of higher-tier inputs MUST NOT be assigned a lower tier than its highest input. This is the standard lattice-based information-flow rule (Denning 1976): the join (`max`) of the source labels is the floor for the derived label. The reference implementation provides `sensitivityCarryForward` and `sensitivityMonotoneCheck` for this.
 
-> **Note (reserved).** SRAID v1.0 does NOT define a commitment-based selective-disclosure scheme that would CONCEAL the tier itself; the reference implementation carries none. Concealing the opaque tier (so that even the level is hidden) is reserved for a future version (Section 9) and MUST NOT be assumed by a v1.0 implementation. The v1.0 tier is opaque as to CATEGORY, not hidden as to LEVEL.
+> **Note (reserved).** SRAID 2.0 does NOT define a commitment-based selective-disclosure scheme that would CONCEAL the tier itself; the reference implementation carries none. Concealing the opaque tier (so that even the level is hidden) is reserved for a future version (Section 9) and MUST NOT be assumed by a 2.0 implementation. The 2.0 tier is opaque as to CATEGORY, not hidden as to LEVEL.
 
 ## 8. Delegation chains
 
@@ -181,7 +181,7 @@ Delegation verification MUST NOT assert revocation status or grant existence. Im
 
 ## 9. Conformance
 
-An implementation conforms to SRAID Core v1.0 if it:
+An implementation conforms to SRAID Core 2.0 if it:
 
 1. Produces `sraid/json` canonical bytes that match the published vectors,
 2. Computes OIDs per Section 4 that match the published vectors, and
@@ -193,10 +193,10 @@ The conformance vectors in `@synoi/conformance` are the normative test of confor
 
 The following are reserved by name so that independent implementations do not adopt incompatible forms:
 
-- **`sraid/cbor`** - a CBOR + COSE binary profile (Section 3). Reserved as a future additive binary profile only. The v1.0 serialization format is settled as `sraid/json` (see Section 3 decision note, 2026-06-27); `sraid/cbor` is not a candidate for v1.0 and MUST NOT be interpreted as an open question for this version.
+- **`sraid/cbor`** - a CBOR + COSE binary profile (Section 3). Reserved as a future additive binary profile only. The 2.0 serialization format is settled as `sraid/json` (see Section 3 decision note, 2026-06-27); `sraid/cbor` is not a candidate for 2.0 and MUST NOT be interpreted as an open question for this version.
 - **routing-prefix layout** - the exact byte layout of the non-normative routing prefix (Section 5).
 - **algorithm agility** - a self-describing (multihash-style) OID form and additional signature suites (Sections 4, 6).
-- **sensitivity concealment** - a commitment-based selective-disclosure scheme that CONCEALS the opaque sensitivity tier itself (Section 7.1). The coarse, opaque tier member and its monotone `max` carry-forward ARE defined in v1.0 (Section 7.1); only the mechanism to hide the level is reserved.
+- **sensitivity concealment** - a commitment-based selective-disclosure scheme that CONCEALS the opaque sensitivity tier itself (Section 7.1). The coarse, opaque tier member and its monotone `max` carry-forward ARE defined in 2.0 (Section 7.1); only the mechanism to hide the level is reserved.
 
 ## 11. References
 
@@ -213,4 +213,5 @@ This appendix records decisions that were implicit in the spec text and have bee
 
 | ID | Date | Decision | Status |
 |---|---|---|---|
-| DD-1 | 2026-06-27 | Serialization format for v1.0 is `sraid/json` (RFC 8785 JCS). `sraid/cbor` is deferred to a post-v1.0 additive binary profile. See Section 3 for rationale. | CLOSED |
+| DD-1 | 2026-06-27 | Serialization format for v1.0 is `sraid/json` (RFC 8785 JCS). `sraid/cbor` is deferred to a post-v1.0 additive binary profile. See Section 3 for rationale. (Earlier drafts of this document labeled this version "v1.0"; that label and "2.0" name the same version, matching the `sraid_version` value `"2.0"`.) | CLOSED |
+| DD-2 | 2026-11-07 | Erratum. Section 3 previously described numbers with the full RFC 8785 serialization, which covers fractional values. The reference implementation has rejected every non-integer since ADR_019, so the text was wrong, not the code; it now states the integer-only domain. It also adds the safe-integer bound: an integer above 2^53 - 1 is rounded by IEEE-754 parsers but kept exactly by arbitrary-precision ones, so the two would hash different bytes for the same document. No object that previously produced a consistent OID across implementations is affected. | CLOSED |

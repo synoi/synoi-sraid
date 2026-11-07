@@ -147,6 +147,32 @@ ok('canonicalize(1000) === "1000"', canonicalize(1000) === '1000', canonicalize(
 ok('canonicalize(-42) === "-42"', canonicalize(-42) === '-42', canonicalize(-42))
 ok('canonicalize(0) === "0"', canonicalize(0) === '0', canonicalize(0))
 
+// ── Safe-integer bound (SPEC Appendix A, DD-2) ───────────────────────────
+//
+// Integers beyond 2^53 - 1 are rounded by IEEE-754 parsers but kept exactly
+// by arbitrary-precision ones, so they would hash differently across
+// implementations. The bound is inclusive at +/-(2^53 - 1).
+
+ok(
+  'canonicalize(MAX_SAFE_INTEGER) === "9007199254740991"',
+  canonicalize(Number.MAX_SAFE_INTEGER) === '9007199254740991',
+  canonicalize(Number.MAX_SAFE_INTEGER),
+)
+ok(
+  'canonicalize(MIN_SAFE_INTEGER) === "-9007199254740991"',
+  canonicalize(Number.MIN_SAFE_INTEGER) === '-9007199254740991',
+  canonicalize(Number.MIN_SAFE_INTEGER),
+)
+ok('ms timestamp 1762500000000 is accepted', canonicalize(1762500000000) === '1762500000000')
+throws('canonicalize(2 ** 53) throws (unsafe integer)', () => canonicalize(2 ** 53))
+throws('canonicalize(-(2 ** 53)) throws (unsafe integer)', () => canonicalize(-(2 ** 53)))
+throws('canonicalize(1e21) throws (would serialize as "1e+21")', () => canonicalize(1e21))
+throws(
+  'JSON.parse("9007199254740993") throws after parse (JS already rounded it)',
+  () => canonicalize(JSON.parse('9007199254740993')),
+)
+throws('nested unsafe integer throws', () => canonicalize({ body: { amount: [1, 2 ** 60] } }))
+
 // ── ADR_019: the -0 special-case is DELETED; -0 is an integer that
 // JSON.stringify renders as "0", so the normative behavior is unchanged
 // without a bespoke branch (one fewer divergence source).

@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+### SPEC erratum: numbers are integer-only (DD-2)
+
+SPEC.md Section 3 described numbers with the full RFC 8785 serialization,
+which covers fractional values, while `canonicalize` has rejected every
+non-integer since ADR_019. The code was right and the public text was wrong.
+Section 3 now states the integer-only domain, and the format is described as
+"RFC 8785 JCS restricted to an integer-only number domain" rather than
+"strict RFC 8785 JCS".
+
+### Behavior change: integers outside +/-(2^53 - 1) are rejected
+
+`canonicalize` now throws a TypeError for any integer outside
+[-(2^53 - 1), 2^53 - 1], for example `2 ** 53` or `1e21`. An IEEE-754 parser
+rounds such a value (`9007199254740993` parses as `9007199254740992`) while an
+arbitrary-precision implementation keeps it exactly, so the same document
+hashed to different OIDs in different languages; `1e21` also serialized as
+`"1e+21"` here and as plain digits elsewhere. Encode such values as decimal
+strings. Output bytes for every value that was already accepted and safe are
+unchanged, so no existing consistent OID or signature changes. GAP-Python
+(`synoi-gap/python/synoi_gap/oid.py`) still accepts unbounded integers and
+needs the same guard to stay conformant. GAP's optional receipt field
+`decided_at_ns` (`synoi-gap/src/receipts.ts:104`, a JS number) would be
+rejected for any current date (about 1.76e18, above 2^53); nothing populates
+it today, and as a JS number it could never hold nanosecond precision anyway,
+so it should become a decimal string in GAP.
+
+### Docs
+
+- SPEC.md body said "v1.0" while its header and the `sraid_version` value
+  say "2.0". The body now says 2.0; Appendix A DD-1 keeps its original wording
+  with a note.
+- SPEC.md Section 3 step 1 said the OID input removes the `oid` and
+  `signature` members; it removes all six detached envelope members, as
+  Section 4 already said.
+- `src/index.ts` pointed readers at a `@synoi/sraid/authority` subpath that
+  does not exist; the grant verifiers are in `@synoi/authority-verify`.
+
+NOT done here: `keyid` binding (4.1b) still changes signed bytes and stays
+out of scope for a non-breaking change.
+
 ## 0.5.0 (2026-09-09)
 
 ### SECURITY: signature-list malleability (4.1, denial-of-service half)

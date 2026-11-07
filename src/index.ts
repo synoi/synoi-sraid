@@ -112,8 +112,9 @@ export {
 
 // MOVED IN 0.4.0 — the grant and delegation-chain VERIFIERS (`verifyAuthority`,
 // `verifyDelegationChain`, `MAX_DELEGATION_DEPTH`) are authorization policy,
-// not object identity, and are no longer exported from this entry. They live
-// at the `@synoi/sraid/authority` subpath, unchanged and still verify-only.
+// not object identity, and are no longer exported from this package. They live
+// in the separate package `@synoi/authority-verify`, unchanged and still
+// verify-only (there is no `@synoi/sraid/authority` subpath).
 //
 // `capabilityCovers`, `AuthorityResolver` and `GrantStatus` did NOT move: they
 // are the leaf primitive and the contract, and are exported above.
