@@ -6,3 +6,6 @@ dist/
 .env.*
 .DS_Store
 .claude/
+
+# Reports and logs written by scripts/local-ci.sh (docs/LOCAL-CI.md).
+ci-reports/
